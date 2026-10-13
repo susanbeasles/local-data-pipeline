@@ -1,0 +1,9 @@
+{
+  "workers": 1,
+  "batchSize": 64,
+  "prefillSize": 4,
+  "memoryBytes": 31000000000,
+  "budgetBytes": 32000000000,
+  "concurrency": 64,
+  "evidence": "/Users/avespoli/local-data-pipeline/state/enrichment-2zXnoC/packaged/benchmark.json"
+}
