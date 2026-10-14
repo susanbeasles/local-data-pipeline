@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile, cp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { prepare, pause, resume, snapshot, logs, sample } from "../panel.ts";
 
 test("native control reads bounded logs and pauses only its registered process tree", async () => {
@@ -63,8 +63,17 @@ test("native control reads bounded logs and pauses only its registered process t
       }
     }
     const late = Number(await readFile(join(root, "late.pid"), "utf8"));
+    const runningLate = () =>
+      execFileSync("/bin/ps", ["-axo", "pid=,stat="], { encoding: "utf8" })
+        .split("\n")
+        .some((line) => {
+          const [pid, state] = line.trim().split(/\s+/);
+          return Number(pid) === late && !state.startsWith("Z");
+        });
+    assert.equal(runningLate(), true, "late worker must be running before pause");
     assert.equal((await pause(panel)).paused, true);
-    assert.throws(() => process.kill(late, 0));
+    // Container PID 1 may retain exited children as zombies; they cannot execute.
+    assert.equal(runningLate(), false, "late worker must stop after pause");
     await writeFile(join(control, "panel-intent.json"), JSON.stringify({ state: "pausing" }));
     await pause(panel);
     assert.equal(
