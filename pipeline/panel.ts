@@ -136,10 +136,26 @@ export async function sample(config: Panel, role: string, offset = 0) {
     throw Error("invalid stage/sample offset");
   const c = await current(config),
     work = await realpath(c.pipeline.work);
+  const graph = ["reconcile", "connect"].includes(role);
+  let generation: string | undefined;
+  if (graph) {
+    const phase = await readFile(join(work, "state", "phase.json"), "utf8")
+      .then(JSON.parse)
+      .catch(() => undefined);
+    if (
+      typeof phase?.generation !== "string" ||
+      !/^[a-f0-9]{64}$/.test(phase.generation)
+    )
+      return {
+        available: false,
+        reason: "Active graph generation is unavailable",
+      };
+    generation = phase.generation;
+  }
   const database = join(
     work,
     "state",
-    ["reconcile", "connect"].includes(role) ? "graph.sqlite" : "pipeline.sqlite",
+    graph ? "graph.sqlite" : "pipeline.sqlite",
   );
   const db = new DatabaseSync(database, { readOnly: true });
   let row;
@@ -147,20 +163,28 @@ export async function sample(config: Panel, role: string, offset = 0) {
     db.exec("PRAGMA busy_timeout=1000");
     row = db
       .prepare(
-        "SELECT id,output,outputHash FROM jobs WHERE role=? AND state='completed' ORDER BY rowid LIMIT 1 OFFSET ?",
+        `SELECT id,output,outputHash FROM jobs WHERE role=? AND state='completed' ${graph ? "AND config=?" : ""} ORDER BY rowid LIMIT 1 OFFSET ?`,
       )
-      .get(role, offset);
+      .get(...(generation ? [role, generation, offset] : [role, offset]));
   } finally {
     db.close();
   }
-  if (!row?.output) return { available: false, reason: "No completed output for this stage yet" };
+  if (!row?.output)
+    return {
+      available: false,
+      reason: "No completed output for this stage yet",
+    };
   const path = await realpath(String(row.output));
   if (!path.startsWith(work + sep) || (await stat(path)).size > 2 * 1024 * 1024)
     throw Error("sample outside work or exceeds 2 MiB");
   const data = await readFile(path);
   if (data.length > 2 * 1024 * 1024 || hash(data) !== row.outputHash)
     throw Error("sample integrity mismatch");
-  return { available: true, id: row.id, receipt: JSON.parse(data.toString("utf8")) };
+  return {
+    available: true,
+    id: row.id,
+    receipt: JSON.parse(data.toString("utf8")),
+  };
 }
 type ProcessInfo = Awaited<ReturnType<typeof processes>>[number];
 type Owner = { pid: number; birth: string; command: string; group: number; members: ProcessInfo[] };

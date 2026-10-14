@@ -179,3 +179,77 @@ test("native sample reader verifies provenance and never follows receipts outsid
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("graph samples use only the active generation and fail closed without one", async () => {
+  const { Store, hash } = await import("../store.ts");
+  const root = await mkdtemp(join(tmpdir(), "panel-generations-")),
+    control = join(root, "control"),
+    work = join(root, "work"),
+    active = hash("active"),
+    archived = hash("archived");
+  await mkdir(control);
+  await mkdir(join(work, "state"), { recursive: true });
+  const config = join(control, "config.json"),
+    phase = join(work, "state/phase.json"),
+    panel = { control, entry: "unused", project: root };
+  await writeFile(config, JSON.stringify({ work }));
+  await writeFile(
+    join(control, "production.json"),
+    JSON.stringify({ configs: { fixture: config } }),
+  );
+  await writeFile(
+    join(control, "progress.json"),
+    JSON.stringify({ pile: "fixture" }),
+  );
+  const db = new Store(join(work, "state/graph.sqlite"));
+  try {
+    for (const generation of [archived, active]) {
+      for (const role of ["reconcile", "connect"]) {
+        for (let index = 0; index < 2; index++) {
+          const id = `${generation}-${role}-${index}`,
+            receipt = join(work, `${id}.json`),
+            bytes = JSON.stringify({ generation, role, index });
+          await writeFile(receipt, bytes);
+          db.db
+            .prepare(
+              "INSERT INTO jobs(id,source,chunk,role,config,state,output,outputHash) VALUES(?,'source',0,?,?,'completed',?,?)",
+            )
+            .run(id, role, generation, receipt, hash(bytes));
+        }
+      }
+    }
+    for (const role of ["reconcile", "connect"]) {
+      await writeFile(phase, JSON.stringify({ generation: active }));
+      for (let index = 0; index < 2; index++) {
+        const result = await sample(panel, role, index);
+        assert.equal(result.available, true);
+        assert.deepEqual(result.receipt, { generation: active, role, index });
+      }
+      assert.equal((await sample(panel, role, 2)).available, false);
+      await writeFile(phase, JSON.stringify({ generation: hash("no jobs") }));
+      assert.equal((await sample(panel, role)).available, false);
+      for (const invalid of [
+        undefined,
+        null,
+        {},
+        { generation: null },
+        { generation: "" },
+        { generation: 42 },
+        { generation: {} },
+        { generation: "invalid" },
+        "malformed",
+      ]) {
+        await rm(phase, { force: true });
+        if (invalid !== undefined)
+          await writeFile(
+            phase,
+            invalid === "malformed" ? "{" : JSON.stringify(invalid),
+          );
+        assert.equal((await sample(panel, role)).available, false);
+      }
+    }
+  } finally {
+    db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
