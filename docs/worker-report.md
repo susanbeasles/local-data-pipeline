@@ -1,6 +1,6 @@
 # Resident worker implementation and verification
 
-Implemented directly in the existing `/Users/avespoli/local-data-pipeline` application. No new experimental project, dataset inventory, migration, or production processing was performed for this change.
+Implemented directly in the existing `<checkout>` application. No new experimental project, dataset inventory, migration, or production processing was performed for this change.
 
 ## Verified behavior
 

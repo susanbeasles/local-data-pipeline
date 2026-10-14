@@ -1,3 +1,4 @@
+import { assets } from "./local.ts";
 /** Same weights, role instructions, schemas and synthetic inputs; packaging is the sole comparison. */
 import { mkdir, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,9 +17,9 @@ import {
 const child = process.argv[2],
   mode = (process.argv[3] ?? "packaged") as "inline" | "packaged";
 const model: Model = {
-  runtime: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-  base: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
-  package: join(import.meta.dirname, "../models/qwen-roles-v14"),
+  runtime: assets().runtime,
+  base: assets().base,
+  package: assets().package,
   adapters: {},
   roleMode: mode,
   workers: 1,

@@ -1,3 +1,4 @@
+import { Deadline } from "./deadline.ts";
 import { inspect } from "./package.ts";
 import { Refs } from "./refs.ts";
 import { annotate } from "./proof.ts";
@@ -24,6 +25,7 @@ export type Model = {
   base: string;
   adapters: Record<string, string>;
   timeoutMs: number;
+  queueTimeoutMs?: number;
   maxTokens: number;
   batchSize: number;
   memoryBytes: number;
@@ -31,7 +33,8 @@ export type Model = {
 type Pending = {
   resolve: (v: unknown, evidence?: unknown) => void;
   reject: (e: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
+  deadline?: Deadline;
 };
 export class Worker {
   child: ChildProcessWithoutNullStreams;
@@ -72,15 +75,8 @@ export class Worker {
         model.roleMode ?? "packaged",
       ]);
     else {
-      const ids = [
-        "PIPELINE_WORKER_IN",
-        "PIPELINE_WORKER_OUT",
-        "PIPELINE_WORKER_ERR",
-      ].map((key) =>
-        Number(
-          process.env[key + "_" + index] ??
-            (index === 0 ? process.env[key] : undefined),
-        ),
+      const ids = ["PIPELINE_WORKER_IN", "PIPELINE_WORKER_OUT", "PIPELINE_WORKER_ERR"].map((key) =>
+        Number(process.env[key + "_" + index] ?? (index === 0 ? process.env[key] : undefined)),
       );
       if (ids.some((n) => !Number.isSafeInteger(n) || n < 3))
         throw Error("descriptor worker absent");
@@ -104,8 +100,7 @@ export class Worker {
           try {
             process.kill(
               Number(
-                process.env["PIPELINE_WORKER_PID_" + index] ??
-                  process.env.PIPELINE_WORKER_PID,
+                process.env["PIPELINE_WORKER_PID_" + index] ?? process.env.PIPELINE_WORKER_PID,
               ),
               signal as NodeJS.Signals,
             );
@@ -129,8 +124,7 @@ export class Worker {
     const lines = createInterface({ input: this.child.stdout });
     lines.on("line", (line) => {
       try {
-        if (line.length > 8 * 1024 * 1024)
-          throw Error("worker frame budget exceeded");
+        if (line.length > 8 * 1024 * 1024) throw Error("worker frame budget exceeded");
         const value = JSON.parse(line);
         if (value.ready) {
           this.metrics.initialization = value.initialization ?? {};
@@ -141,12 +135,9 @@ export class Worker {
         }
         if (value.progress === true) {
           if (
-            ![
-              value.active,
-              value.generationTokens,
-              value.promptTokens,
-              value.peakBytes,
-            ].every((n) => Number.isFinite(n) && n >= 0)
+            ![value.active, value.generationTokens, value.promptTokens, value.peakBytes].every(
+              (n) => Number.isFinite(n) && n >= 0,
+            )
           )
             throw Error("invalid worker progress frame");
           this.diagnostic = JSON.stringify({
@@ -159,7 +150,12 @@ export class Worker {
         }
         const p = this.pending.get(value.id);
         if (!p) throw Error("worker response identity mismatch");
+        if (value.queued === true || value.admitted === true) {
+          p.deadline?.transition(value.admitted === true ? "admitted" : "queued");
+          return;
+        }
         clearTimeout(p.timer);
+        p.deadline?.close();
         this.pending.delete(value.id);
         if (value.error)
           p.reject(
@@ -171,10 +167,7 @@ export class Worker {
         else {
           this.metrics.inputTokens += Number(value.inputTokens) || 0;
           this.metrics.outputTokens += Number(value.outputTokens) || 0;
-          this.metrics.peakBytes = Math.max(
-            this.metrics.peakBytes,
-            Number(value.peakBytes) || 0,
-          );
+          this.metrics.peakBytes = Math.max(this.metrics.peakBytes, Number(value.peakBytes) || 0);
           this.metrics.engine = value.engineStats ?? this.metrics.engine;
           this.metrics.forwards = value.forwards ?? this.metrics.forwards;
           if (value.trace) {
@@ -205,9 +198,7 @@ export class Worker {
   static async start(model: Model, adapter: string, index = 0) {
     await assertNetworkDenied();
     if (!process.env.PIPELINE_WORKER_IN_0 && !process.env.PIPELINE_WORKER_IN)
-      throw Error(
-        "worker must be launched by descriptor supervisor before application sandbox",
-      );
+      throw Error("worker must be launched by descriptor supervisor before application sandbox");
     const worker = new Worker(model, adapter, undefined, index);
     try {
       await worker.ready;
@@ -222,6 +213,7 @@ export class Worker {
     this.ended = true;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
+      p.deadline?.close();
       p.reject(e);
     }
     this.pending.clear();
@@ -230,31 +222,30 @@ export class Worker {
   async infer(r: Request, model: Model) {
     await this.ready;
     if (this.ended) throw new WorkerFailure("worker unavailable");
-    if (this.pending.size >= model.batchSize)
-      throw Error("worker capacity exceeded");
+    if (this.pending.size >= model.batchSize) throw Error("worker capacity exceeded");
     if (this.pending.has(r.id)) throw Error("duplicate in-flight identity");
     const refs = new Refs(r.payload);
     return new Promise<unknown>((ok, no) => {
-      const timer = setTimeout(
-        () =>
+      const deadline = new Deadline(
+        {
+          admitted: model.timeoutMs,
+          queued:
+            model.queueTimeoutMs ?? Math.min(2_147_483_647, model.timeoutMs * model.batchSize),
+        },
+        (phase) =>
           this.fail(
             new WorkerFailure(
-              "inference timeout; last engine progress: " +
-                (this.diagnostic || "none"),
+              phase + " timeout; last engine progress: " + (this.diagnostic || "none"),
             ),
           ),
-        model.timeoutMs,
       );
       this.pending.set(r.id, {
-        resolve: (value, evidence) =>
-          ok(annotate(refs.restore(value), refs.restore(evidence))),
+        resolve: (value, evidence) => ok(annotate(refs.restore(value), refs.restore(evidence))),
         reject: no,
-        timer,
+        deadline,
       });
       if (model.package && model.roleMode === "inline")
-        this.metrics.systemBytesSent += Buffer.byteLength(
-          this.instructions[r.role],
-        );
+        this.metrics.systemBytesSent += Buffer.byteLength(this.instructions[r.role]);
       this.child.stdin.write(
         JSON.stringify(
           model.package
@@ -262,9 +253,7 @@ export class Worker {
                 id: r.id,
                 role: r.role,
                 payload: r.payload ? refs.encode(r.payload) : undefined,
-                ...(model.roleMode === "inline"
-                  ? { system: this.instructions[r.role] }
-                  : {}),
+                ...(model.roleMode === "inline" ? { system: this.instructions[r.role] } : {}),
               }
             : { id: r.id, text: r.text, maxTokens: model.maxTokens },
         ) + "\n",
@@ -287,9 +276,7 @@ export async function fingerprint(model: Model) {
   for (const role of Object.keys(model.adapters).sort()) {
     adapters.push({
       role,
-      weights: await fileHash(
-        join(model.adapters[role], "adapters.safetensors"),
-      ),
+      weights: await fileHash(join(model.adapters[role], "adapters.safetensors")),
       config: await fileHash(join(model.adapters[role], "adapter_config.json")),
     });
   }
@@ -298,12 +285,12 @@ export async function fingerprint(model: Model) {
       base: base.hash,
       runtime: runtime.hash,
       adapters,
-      package: model.package
-        ? (await inspect(model.package, model.base)).identity
-        : null,
+      package: model.package ? (await inspect(model.package, model.base)).identity : null,
       roleMode: model.roleMode ?? "packaged",
       worker: await fileHash(join(import.meta.dirname, "worker.py")),
       decoder: await fileHash(join(import.meta.dirname, "decoder.py")),
+      deadline: await fileHash(join(import.meta.dirname, "deadline.ts")),
+      admission: await fileHash(join(import.meta.dirname, "admission.py")),
       refs: await fileHash(join(import.meta.dirname, "refs.ts")),
       proof: await fileHash(join(import.meta.dirname, "proof.ts")),
       profile: await fileHash(join(import.meta.dirname, "profile.ts")),
@@ -312,6 +299,8 @@ export async function fingerprint(model: Model) {
         workers: model.workers ?? 1,
         budgetBytes: model.budgetBytes ?? 32_000_000_000,
         timeoutMs: model.timeoutMs,
+        queueTimeoutMs:
+          model.queueTimeoutMs ?? Math.min(2_147_483_647, model.timeoutMs * model.batchSize),
         maxTokens: model.maxTokens,
         batchSize: model.batchSize,
         prefillSize: model.prefillSize ?? model.batchSize,
@@ -336,9 +325,7 @@ export async function modelVersion(model: Model, roles: string[]) {
       }),
     );
   }
-  throw Error(
-    "production requires packaged role instructions; learned adapters are not supported",
-  );
+  throw Error("production requires packaged role instructions; learned adapters are not supported");
 }
 
 export function bounds(model: Model) {
@@ -348,6 +335,13 @@ export function bounds(model: Model) {
     )
   )
     throw Error("invalid worker resource/inference limits");
+  if (
+    model.queueTimeoutMs !== undefined &&
+    (!Number.isSafeInteger(model.queueTimeoutMs) ||
+      model.queueTimeoutMs < 1 ||
+      model.queueTimeoutMs > 2_147_483_647)
+  )
+    throw Error("invalid queue timeout");
   const count = model.workers ?? 1,
     budget = model.budgetBytes ?? 32_000_000_000;
   if (
@@ -363,9 +357,7 @@ export function bounds(model: Model) {
     budget > 32_000_000_000 ||
     model.memoryBytes * count > budget - 512 * 1024 ** 2
   )
-    throw Error(
-      "aggregate MLX allocations exceed memory budget including application reserve",
-    );
+    throw Error("aggregate MLX allocations exceed memory budget including application reserve");
   const prefill = model.prefillSize ?? model.batchSize;
   if (!Number.isInteger(prefill) || prefill < 1 || prefill > model.batchSize)
     throw Error("prefill size must be 1..batch size");
@@ -380,23 +372,12 @@ export function pool(model: Model) {
   const ready = assertNetworkDenied()
     .then(async () => {
       if (model.package)
-        roles = (await inspect(model.package, model.base)).roles.map(
-          (r) => r.role,
-        );
+        roles = (await inspect(model.package, model.base)).roles.map((r) => r.role);
       for (let i = 0; i < count; i++)
-        workers.push(
-          new Worker(
-            model,
-            model.package ?? model.adapters[roles[0]],
-            undefined,
-            i,
-          ),
-        );
+        workers.push(new Worker(model, model.package ?? model.adapters[roles[0]], undefined, i));
       if (model.package && model.roleMode === "inline") {
         for (const role of roles) {
-          const cfg = JSON.parse(
-            await readFile(join(model.package, role, "model.json"), "utf8"),
-          );
+          const cfg = JSON.parse(await readFile(join(model.package, role, "model.json"), "utf8"));
           for (const worker of workers) worker.instructions[role] = cfg.system;
         }
       }
@@ -406,9 +387,7 @@ export function pool(model: Model) {
     .catch((error) => {
       for (const worker of workers)
         worker.fail(new WorkerFailure("resident pool initialization failed"));
-      throw error instanceof WorkerFailure
-        ? error
-        : new WorkerFailure(String(error));
+      throw error instanceof WorkerFailure ? error : new WorkerFailure(String(error));
     });
   // Install a rejection handler immediately; callers receive the original error.
   ready.catch(() => {});
@@ -417,9 +396,7 @@ export function pool(model: Model) {
       const all = await ready;
       if (!roles.includes(r.role as any)) throw Error("worker role mismatch");
       if (all[i].ended)
-        throw new WorkerFailure(
-          "worker terminated; checkpoint retained, restart the run",
-        );
+        throw new WorkerFailure("worker terminated; checkpoint retained, restart the run");
       return all[i].infer(r, model);
     }),
     model.batchSize,

@@ -1,11 +1,12 @@
+import { assets } from "../local.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { sandbox } from "../legacy/sandbox.ts";
 test("installed MLX generator advances batched rows and admits new sequences during decode", async () => {
   const box = await sandbox(
-    "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-    "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+    assets().runtime,
+    assets().base,
     join(import.meta.dirname, "engine.py"),
     join(import.meta.dirname, "../../models/anchors-experiment"),
   );

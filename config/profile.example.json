@@ -8,8 +8,8 @@
   "attempts": 3,
   "maxBytes": 67108864,
   "mlx": {
-    "runtime": "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-    "base": "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+    "runtime": "../.venv",
+    "base": "../models/qwen2.5-3b",
     "package": "/absolute/models/catalog",
     "adapters": {},
     "roleMode": "packaged",

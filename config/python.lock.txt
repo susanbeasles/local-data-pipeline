@@ -5,9 +5,9 @@ fsspec==2025.10.0
 hf-xet==1.7.0
 huggingface_hub==0.36.2
 idna==3.20
-interegular @ file:///Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime-wheels/interegular-0.3.3-py37-none-any.whl
+interegular==0.3.3
 Jinja2==3.1.6
-lm-format-enforcer @ file:///Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime-wheels/lm_format_enforcer-0.10.11-py3-none-any.whl
+lm-format-enforcer==0.10.11
 MarkupSafe==3.0.4
 mlx==0.29.3
 mlx-lm==0.29.1
@@ -16,7 +16,7 @@ numpy==2.0.2
 packaging==26.3
 pip==21.2.4
 protobuf==6.33.6
-pydantic @ file:///Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime-wheels/pydantic-1.10.22-py3-none-any.whl
+pydantic==1.10.22
 PyYAML==6.0.3
 regex==2026.1.15
 requests==2.32.5

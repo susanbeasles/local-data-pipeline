@@ -45,10 +45,15 @@ def stop(*args,force=False):
 def monitor():
     global exceeded
     while not stop_event.is_set():
-        processes=[memory(os.getpid())]+[memory(p.pid) for p in [app]+workers if p.poll() is None]
+        identities=[('supervisor',os.getpid())]+[('application',app.pid)] if app.poll() is None else [('supervisor',os.getpid())]
+        identities += [('worker:'+str(index),p.pid) for index,p in enumerate(workers) if p.poll() is None]
+        processes=[]
+        for role,pid in identities:
+            usage=memory(pid)
+            processes.append(dict(role=role,pid=pid,**usage) if usage is not None else None)
         if any(p is None for p in processes):
             exceeded=True;stop(force=True);break
-        sample={'seconds':time.monotonic()-started,'footprintBytes':sum(p['footprintBytes'] for p in processes),'residentBytes':sum(p['residentBytes'] for p in processes)}
+        sample={'seconds':time.monotonic()-started,'footprintBytes':sum(p['footprintBytes'] for p in processes),'residentBytes':sum(p['residentBytes'] for p in processes),'processes':processes}
         samples.append(sample)
         if sample['footprintBytes']>budget:
             exceeded=True;print('aggregate process footprint exceeded memory budget',file=sys.stderr);stop(force=True);break
@@ -73,7 +78,7 @@ finally:
         try:worker.wait(timeout=10)
         except subprocess.TimeoutExpired:worker.kill();worker.wait()
     gpu=[s['gpuPercent'] for s in samples if s.get('gpuPercent') is not None]
-    report={'workers':len(workers),'budgetBytes':budget,'budgetExceeded':exceeded,'peakFootprintBytes':max((s['footprintBytes'] for s in samples),default=0),'peakResidentBytes':max((s['residentBytes'] for s in samples),default=0),'gpuMeanPercent':sum(gpu)/len(gpu) if gpu else None,'gpuPeakPercent':max(gpu) if gpu else None,'gpuScope':'system-wide Apple GPU device utilization; other applications may contribute','samples':samples,'exitCode':status}
+    report={'workers':len(workers),'budgetBytes':budget,'budgetExceeded':exceeded,'peakFootprintBytes':max((s['footprintBytes'] for s in samples),default=0),'peakResidentBytes':max((s['residentBytes'] for s in samples),default=0),'processesAtPeak':max(samples,key=lambda s:s['footprintBytes']).get('processes',[]) if samples else [],'gpuMeanPercent':sum(gpu)/len(gpu) if gpu else None,'gpuPeakPercent':max(gpu) if gpu else None,'gpuScope':'system-wide Apple GPU device utilization; other applications may contribute','samples':samples,'exitCode':status}
     target=Path(config['work'])/'state'/'resources.json';temp=target.with_suffix('.tmp')
     with temp.open('w') as stream:json.dump(report,stream);stream.flush();os.fsync(stream.fileno())
     os.replace(temp,target)

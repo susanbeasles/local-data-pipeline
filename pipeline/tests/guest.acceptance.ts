@@ -32,7 +32,7 @@ pathlib.Path('/work/result').write_text('synthetic result')
 r['workWritable']=True
 r['sshHidden']=not pathlib.Path('/run/ssh-agent.sock').exists()
 r['dockerHidden']=not pathlib.Path('/var/run/docker.sock').exists()
-r['hostCorpusHidden']=not pathlib.Path('/Users/avespoli/SonarMD-Dump-2026-10-09').exists()
+r['outerHomeHidden']=not pathlib.Path('/home/agent').exists()
 s=socket.socket();s.settimeout(2)
 try:s.connect(('1.1.1.1',443));r['networkDenied']=False
 except OSError as e:r['networkDenied']=e.errno in [1,13,101]

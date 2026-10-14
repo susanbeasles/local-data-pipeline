@@ -1,3 +1,4 @@
+import { assets } from "../local.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
@@ -36,10 +37,10 @@ test("model sandbox denies network, arbitrary file reads, all writes and process
   );
   const { sandbox } = await import("../legacy/sandbox.ts");
   const box = await sandbox(
-    "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-    "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+    assets().runtime,
+    assets().base,
     script,
-    "/Users/avespoli/code/local-data-pipeline/models/anchors-experiment",
+    assets().package,
   );
   try {
     const child = box.launch([script]);

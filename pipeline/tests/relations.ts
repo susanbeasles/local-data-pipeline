@@ -1,3 +1,4 @@
+import { assets } from "../local.ts";
 /** Real-model controlled relationship acceptance. No corpus reads. */
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,8 +6,8 @@ import { pool, type Model } from "../mlx.ts";
 import { launch, assertNetworkDenied } from "../sandbox.ts";
 import { atomic } from "../store.ts";
 const model: Model = {
-  runtime: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-  base: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+  runtime: assets().runtime,
+  base: assets().base,
   package: join(import.meta.dirname, "../../models/qwen-roles-v14"),
   adapters: {},
 

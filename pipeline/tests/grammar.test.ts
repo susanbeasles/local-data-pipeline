@@ -1,3 +1,4 @@
+import { assets } from "../local.ts";
 import { realpath } from "node:fs/promises";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -5,13 +6,13 @@ import { join } from "node:path";
 import { sandbox } from "../legacy/sandbox.ts";
 test("installed constrained decoder permits a complete grounded summary and EOS", async () => {
   const base =
-      "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+      assets().base,
     pkg = await realpath(
-      join(import.meta.dirname, "../../models/qwen-roles-v14"),
+      assets().package,
     ),
     script = join(import.meta.dirname, "grammar.py");
   const box = await sandbox(
-    "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
+    assets().runtime,
     base,
     script,
     pkg,
