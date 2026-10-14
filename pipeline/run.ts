@@ -8,7 +8,7 @@ import {
 } from "./profile.ts";
 import { validRole, type Role } from "./roles.ts";
 import { Jobs } from "./jobs.ts";
-import { Stage } from "./stage.ts";
+import { Stage, type Snapshot } from "./stage.ts";
 import { Lock } from "./lock.ts";
 import { WorkerFailure } from "./errors.ts";
 import { proof } from "./proof.ts";
@@ -22,7 +22,7 @@ import {
   readdir,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { fileHash } from "./seal.ts";
 import { Store, hash, atomic } from "./store.ts";
 import { source, discover, type Source, type Chunk } from "./source.ts";
@@ -194,27 +194,12 @@ export async function run(config: Config, infer: Inference) {
       }
       const stage = join(config.work, "staging", s.id + ".json");
       s.chunkFile = join(config.work, "staging", s.id + ".jsonl");
-      const jsonl = s.chunks
-        .map(
-          (c) =>
-            JSON.stringify({
-              source: s.id,
-              sourceHash: s.hash,
-              normalizedHash: s.normalizedHash,
-              ...c,
-            }) + "\n",
-        )
-        .join("");
-      await atomic(s.chunkFile, jsonl, true);
-      s.chunkHash = hash(jsonl);
-      await atomic(stage, {
-        ...s,
+      const stageHash = await Stage.write(stage, s, {
         roles: config.roles,
         enrichment: config.enrichment,
         profile: config.profile,
         configHash,
       });
-      const stageHash = hash(await readFile(stage));
       store.transaction(() => {
         db.prepare(
           "INSERT OR REPLACE INTO sources VALUES(?,?,?,?,?,?,?,?)",
@@ -299,7 +284,7 @@ export async function run(config: Config, infer: Inference) {
               String(src.stage),
               String(src.stageHash),
             ),
-            chunk = data.chunks[Number(job.chunk)];
+            chunk = await Stage.chunk(data, Number(job.chunk));
           if (!chunk || hash(chunk.text) !== chunk.hash)
             throw Error("chunk hash mismatch");
           const request: Request = {
@@ -617,7 +602,7 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
       }
       const data = JSON.parse(
         await readFile(String(s.stage), "utf8"),
-      ) as Source & {
+      ) as Snapshot & {
         roles: string[];
         enrichment?: { namespace: string };
         profile?: Profile;
@@ -639,11 +624,28 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
         !data.chunkFile ||
         !data.chunkHash ||
         !(await intact(data.chunkFile, data.chunkHash))
-      )
+      ) {
         errors.push("chunk-jsonl:" + s.id);
+        continue;
+      }
       if (data.state !== "pending") continue;
+      async function checkedChunk(index: number) {
+        try {
+          return await Stage.chunk(data, index);
+        } catch (error) {
+          errors.push("chunk:" + s.id + ":" + index + ":" + String(error));
+          return undefined;
+        }
+      }
       let end = 0;
-      for (const c of data.chunks) {
+      const normalized = createHash("sha256");
+      for (let index = 0; index < data.chunks.length; index++) {
+        const c = await checkedChunk(index);
+        if (!c) {
+          errors.push("missing-chunk:" + index);
+          continue;
+        }
+        normalized.update(c.text);
         if (
           c.start !== end ||
           c.end !== c.start + c.text.length ||
@@ -652,7 +654,7 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
           errors.push("chunk:" + c.id);
         end = c.end;
       }
-      if (hash(data.chunks.map((c) => c.text).join("")) !== data.normalizedHash)
+      if (normalized.digest("hex") !== data.normalizedHash)
         errors.push("normalized:" + s.id);
       if (s.state === "completed") {
         const jobs = db.prepare("SELECT * FROM jobs WHERE source=?").all(s.id);
@@ -679,7 +681,7 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
                   ? validRole(j.role as Role, result.result, result.payload)
                   : valid(
                       result.result,
-                      data.chunks[Number(j.chunk)]?.text ?? "",
+                      (await checkedChunk(Number(j.chunk)))?.text ?? "",
                     ))
             )
               errors.push("attribution:" + j.id);

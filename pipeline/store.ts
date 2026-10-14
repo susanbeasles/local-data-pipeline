@@ -22,6 +22,30 @@ export async function atomic(path: string, value: unknown, raw = false) {
     await d.close();
   }
 }
+/** Durable streaming publication; never assembles an entire JSONL artifact in RAM. */
+export async function publish(path: string, rows: Iterable<string>) {
+  await mkdir(dirname(path), { recursive: true });
+  const temp = path + "." + randomUUID() + ".tmp",
+    file = await open(temp, "wx", 0o600),
+    digest = createHash("sha256");
+  try {
+    for (const row of rows) {
+      await file.writeFile(row);
+      digest.update(row);
+    }
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  await rename(temp, path);
+  const directory = await open(dirname(path), "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+  return digest.digest("hex");
+}
 export class Store {
   db: DatabaseSync;
   private writes: {

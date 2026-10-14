@@ -17,10 +17,14 @@ const model: Model = {
   prefillSize: 4,
   memoryBytes: 31_000_000_000,
   budgetBytes: 32_000_000_000,
-  timeoutMs: Number(process.env.PIPELINE_LOAD_TIMEOUT ?? 180000),
+  timeoutMs: Number(
+    process.argv.find((a) => a.startsWith("--timeout="))?.split("=")[1] ??
+      180000,
+  ),
   maxTokens: 1600,
 };
-const root = process.argv[2];
+const flags = process.argv.slice(2).filter((a) => a.startsWith("--"));
+const root = process.argv[2]?.startsWith("--") ? undefined : process.argv[2];
 if (!root) {
   const root = await mkdtemp(join(import.meta.dirname, "../../state/load-"));
   await mkdir(join(root, "input"));
@@ -31,17 +35,20 @@ if (!root) {
     join(root, "input"),
     join(root, "work"),
     import.meta.filename,
-    [root],
+    [root, ...flags],
     model,
   );
 } else {
   await assertNetworkDenied();
   const workers = pool(model);
   const begin = performance.now();
-  const text =
-    "Alpha stores records locally. Beta reads records from Alpha. Network access is disabled. "
-      .repeat(70)
-      .slice(0, 6000);
+  const text = process.argv.includes("--dense")
+    ? Array.from({ length: 150 }, (_, i) => `record ${i}: ${hash(String(i))}`)
+        .join("\n")
+        .slice(0, 6000)
+    : "Alpha stores records locally. Beta reads records from Alpha. Network access is disabled. "
+        .repeat(70)
+        .slice(0, 6000);
   const payload = {
     spans: [{ id: 0, text }],
     context: {

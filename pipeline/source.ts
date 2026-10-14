@@ -69,9 +69,17 @@ export async function source(
   const f = await open(path, "r"),
     h = createHash("sha256");
   const blocks: Buffer[] = [];
-  let bytes = 0;
+  let bytes = 0,
+    binary = false;
   try {
     for await (const b of f.createReadStream()) {
+      if (!extractor) {
+        binary ||=
+          b.includes(0) ||
+          (bytes === 0 &&
+            (b.subarray(0, 4).toString() === "%PDF" ||
+              b.subarray(0, 2).toString() === "PK"));
+      }
       h.update(b);
       bytes += b.length;
       if (bytes <= maxBytes) blocks.push(Buffer.from(b));
@@ -89,6 +97,11 @@ export async function source(
   ) {
     row.state = "invalid";
     row.reason = "source changed during extraction";
+    return row;
+  }
+  if (!extractor && binary) {
+    row.state = "unsupported";
+    row.reason = "binary format has no installed extractor";
     return row;
   }
   if (bytes > maxBytes) {
