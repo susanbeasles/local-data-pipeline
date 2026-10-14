@@ -1,3 +1,4 @@
+import { review, type Receipt } from "./review.ts";
 import { readFile, mkdir, open, rename, statfs } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -265,182 +266,215 @@ export async function graph(config: Config, infer: Inference) {
       for (const role of ["reconcile", "connect"] as const) {
         if (aborted) break;
         await phase(config.work, role, "running", generation);
-        const jobs = new Jobs(store, config.concurrency, role, generation);
-        async function work() {
-          while (!aborted) {
-            const job = jobs.claim();
-            if (!job) return;
-            // Archived jobs are not scheduled in a new generation.
-            const meta = db
-              .prepare("SELECT config FROM jobs WHERE id=?")
-              .get(job.id)!;
-            if (meta.config !== generation) {
-              store.transaction(() => {
-                db.prepare(
-                  "UPDATE jobs SET state='failed',error='superseded generation' WHERE id=?",
-                ).run(job.id);
-                db.prepare(
-                  "UPDATE attempts SET state='failed',error='superseded generation' WHERE job=? AND attempt=?",
-                ).run(job.id, job.attempt);
-              });
-              continue;
-            }
-            active++;
-            try {
-              const pair = db
-                .prepare("SELECT * FROM candidates WHERE id=?")
-                .get(job.source)!;
-              const members = [pair.first, pair.second].map(
-                (id) =>
-                  JSON.parse(
-                    String(
-                      db
-                        .prepare("SELECT body FROM entities WHERE id=?")
-                        .get(id)!.body,
-                    ),
-                  ) as Entity,
-              );
-              if (
-                hash(members.map((m) => hash(JSON.stringify(m))).join(":")) !==
-                pair.inputHash
-              )
-                throw Error("candidate producer hash mismatch");
-              const evidence = members
-                .flatMap((m) => m.evidence)
-                .map((proof, spanId) => ({ ...proof, spanId })) as {
-                id: string;
-                member: string;
-                text: string;
-                spanId: number;
-                [key: string]: unknown;
-              }[];
-              const prior: Record<string, unknown> = {};
-              if (role === "connect") {
-                const parent = db
-                  .prepare(
-                    "SELECT * FROM jobs WHERE source=? AND role='reconcile'",
-                  )
-                  .get(job.source)!;
-                if (
-                  parent.state !== "completed" ||
-                  !(await intact(
-                    String(parent.output),
-                    String(parent.outputHash),
-                  ))
-                )
-                  throw Error("upstream reconciliation unavailable");
-                prior.reconcile = JSON.parse(
-                  await readFile(String(parent.output), "utf8"),
-                ).result;
+        for (;;) {
+          for (const j of db
+            .prepare(
+              "SELECT id,attempt FROM jobs WHERE config=? AND role=? AND state!='completed'",
+            )
+            .all(generation, role))
+            ceilings.set(String(j.id), Number(j.attempt) + config.attempts);
+          const jobs = new Jobs(store, config.concurrency, role, generation);
+          async function work() {
+            while (!aborted) {
+              const job = jobs.claim();
+              if (!job) return;
+              // Archived jobs are not scheduled in a new generation.
+              const meta = db
+                .prepare("SELECT config FROM jobs WHERE id=?")
+                .get(job.id)!;
+              if (meta.config !== generation) {
+                store.transaction(() => {
+                  db.prepare(
+                    "UPDATE jobs SET state='failed',error='superseded generation' WHERE id=?",
+                  ).run(job.id);
+                  db.prepare(
+                    "UPDATE attempts SET state='failed',error='superseded generation' WHERE job=? AND attempt=?",
+                  ).run(job.id, job.attempt);
+                });
+                continue;
               }
-              const payload: Payload = {
-                spans: evidence.map((proof) => ({
-                  id: proof.spanId,
-                  text: proof.text,
-                })),
-                context: {
-                  trustedNamespace: config.enrichment!.namespace,
-                  candidates: { members, evidence },
-                  independentEvidence:
-                    members[0].sourceHash !== members[1].sourceHash,
-                },
-                prior,
-              };
-              const request: Request = {
-                id: job.id,
-                role,
-                text: "",
-                attempt: job.attempt,
-                sourceHash: String(pair.inputHash),
-                configHash: generation,
-                chunk: {
-                  id: job.source,
-                  index: 0,
-                  start: 0,
-                  end: 0,
+              active++;
+              try {
+                const pair = db
+                  .prepare("SELECT * FROM candidates WHERE id=?")
+                  .get(job.source)!;
+                const members = [pair.first, pair.second].map(
+                  (id) =>
+                    JSON.parse(
+                      String(
+                        db
+                          .prepare("SELECT body FROM entities WHERE id=?")
+                          .get(id)!.body,
+                      ),
+                    ) as Entity,
+                );
+                if (
+                  hash(
+                    members.map((m) => hash(JSON.stringify(m))).join(":"),
+                  ) !== pair.inputHash
+                )
+                  throw Error("candidate producer hash mismatch");
+                const evidence = members
+                  .flatMap((m) => m.evidence)
+                  .map((proof, spanId) => ({ ...proof, spanId })) as {
+                  id: string;
+                  member: string;
+                  text: string;
+                  spanId: number;
+                  [key: string]: unknown;
+                }[];
+                const prior: Record<string, unknown> = {};
+                if (role === "connect") {
+                  const parent = db
+                    .prepare(
+                      "SELECT * FROM jobs WHERE source=? AND role='reconcile'",
+                    )
+                    .get(job.source)!;
+                  if (
+                    parent.state !== "completed" ||
+                    !(await intact(
+                      String(parent.output),
+                      String(parent.outputHash),
+                    ))
+                  )
+                    throw Error("upstream reconciliation unavailable");
+                  prior.reconcile = JSON.parse(
+                    await readFile(String(parent.output), "utf8"),
+                  ).result;
+                }
+                const payload: Payload = {
+                  spans: evidence.map((proof) => ({
+                    id: proof.spanId,
+                    text: proof.text,
+                  })),
+                  context: {
+                    trustedNamespace: config.enrichment!.namespace,
+                    candidates: { members, evidence },
+                    independentEvidence:
+                      members[0].sourceHash !== members[1].sourceHash,
+                  },
+                  prior,
+                };
+                const request: Request = {
+                  id: job.id,
+                  role,
                   text: "",
-                  hash: hash(""),
-                } as any,
-                payload,
-              };
-              const result = await infer(request);
-              await atomic(
-                join(
+                  attempt: job.attempt,
+                  sourceHash: String(pair.inputHash),
+                  configHash: generation,
+                  chunk: {
+                    id: job.source,
+                    index: 0,
+                    start: 0,
+                    end: 0,
+                    text: "",
+                    hash: hash(""),
+                  } as any,
+                  payload,
+                };
+                const result = await infer(request);
+                await atomic(
+                  join(
+                    config.work,
+                    "state",
+                    "graph",
+                    "attempts",
+                    job.id,
+                    String(job.attempt) + ".json",
+                  ),
+                  {
+                    candidate: job.source,
+                    request,
+                    result,
+                    inference: proof(result),
+                    model: config.model,
+                  },
+                );
+                if (!validRole(role, result, payload))
+                  throw Error("invalid graph role response/evidence");
+                const output = join(
                   config.work,
                   "state",
                   "graph",
-                  "attempts",
-                  job.id,
-                  String(job.attempt) + ".json",
-                ),
-                {
+                  "results",
+                  job.id + ".json",
+                );
+                await atomic(output, {
+                  job: job.id,
                   candidate: job.source,
-                  request,
-                  result,
+                  inputHash: pair.inputHash,
+                  role,
                   inference: proof(result),
                   model: config.model,
-                },
-              );
-              if (!validRole(role, result, payload))
-                throw Error("invalid graph role response/evidence");
-              const output = join(
-                config.work,
-                "state",
-                "graph",
-                "results",
-                job.id + ".json",
-              );
-              await atomic(output, {
-                job: job.id,
-                candidate: job.source,
-                inputHash: pair.inputHash,
-                role,
-                inference: proof(result),
-                model: config.model,
-                configHash: generation,
-                attempt: job.attempt,
-                payload,
-                result,
-              });
-              const digest = await fileHash(output);
-              await store.commit(() => {
-                db.prepare(
-                  "INSERT OR REPLACE INTO artifacts VALUES(?,?,?)",
-                ).run(output, digest, job.id);
-                db.prepare(
-                  "UPDATE jobs SET state='completed',output=?,outputHash=?,error=NULL WHERE id=?",
-                ).run(output, digest, job.id);
-                db.prepare(
-                  "UPDATE attempts SET state='completed' WHERE job=? AND attempt=?",
-                ).run(job.id, job.attempt);
-              });
-            } catch (e) {
-              const fatal = e instanceof WorkerFailure;
-              if (fatal) aborted = true;
-              store.transaction(() => {
-                db.prepare("UPDATE jobs SET state=?,error=? WHERE id=?").run(
-                  fatal ||
-                    job.attempt < (ceilings.get(job.id) ?? config.attempts)
-                    ? "pending"
-                    : "failed",
-                  String(e),
-                  job.id,
-                );
-                db.prepare(
-                  "UPDATE attempts SET state=?,error=? WHERE job=? AND attempt=?",
-                ).run(
-                  fatal ? "interrupted" : "failed",
-                  String(e),
-                  job.id,
-                  job.attempt,
-                );
-              });
-            } finally {
-              active--;
+                  configHash: generation,
+                  attempt: job.attempt,
+                  payload,
+                  result,
+                });
+                const digest = await fileHash(output);
+                await store.commit(() => {
+                  db.prepare(
+                    "INSERT OR REPLACE INTO artifacts VALUES(?,?,?)",
+                  ).run(output, digest, job.id);
+                  db.prepare(
+                    "UPDATE jobs SET state='completed',output=?,outputHash=?,error=NULL WHERE id=?",
+                  ).run(output, digest, job.id);
+                  db.prepare(
+                    "UPDATE attempts SET state='completed' WHERE job=? AND attempt=?",
+                  ).run(job.id, job.attempt);
+                });
+              } catch (e) {
+                const fatal = e instanceof WorkerFailure;
+                if (fatal) aborted = true;
+                store.transaction(() => {
+                  db.prepare("UPDATE jobs SET state=?,error=? WHERE id=?").run(
+                    fatal ||
+                      job.attempt < (ceilings.get(job.id) ?? config.attempts)
+                      ? "pending"
+                      : "failed",
+                    String(e),
+                    job.id,
+                  );
+                  db.prepare(
+                    "UPDATE attempts SET state=?,error=? WHERE job=? AND attempt=?",
+                  ).run(
+                    fatal ? "interrupted" : "failed",
+                    String(e),
+                    job.id,
+                    job.attempt,
+                  );
+                });
+              } finally {
+                active--;
+              }
             }
           }
+          await Promise.all(Array.from({ length: config.concurrency }, work));
+          if (aborted || !config.review?.after.includes(role)) break;
+          const receipts = db
+            .prepare(
+              "SELECT id,state,outputHash,attempt FROM jobs WHERE config=? AND role=? ORDER BY id",
+            )
+            .all(generation, role) as Receipt[];
+          const decision = await review(
+            config.work,
+            role,
+            generation,
+            receipts,
+            config.resume,
+            generation,
+          );
+          if (decision === "reject")
+            throw Error("Review rejected stage: " + role);
+          if (decision === "approve") break;
+          store.transaction(() =>
+            db
+              .prepare(
+                "UPDATE jobs SET state='pending',error='operator requested stage retry' WHERE config=? AND (role=? OR ?='reconcile')",
+              )
+              .run(generation, role, role),
+          );
         }
-        await Promise.all(Array.from({ length: config.concurrency }, work));
       }
     } finally {
       clearInterval(timer);

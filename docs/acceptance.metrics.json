@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-13",
+  "automatedTests": 75,
+  "typeCheck": true,
+  "weightsChanged": false,
+  "sixStage": {
+    "scope": "two fully enriched synthetic files",
+    "outputsIdentical": true,
+    "inline": {
+      "seconds": 134.504861666,
+      "promptTokens": 15044,
+      "generatedTokensPerSecond": 10.334198949
+    },
+    "packaged": {
+      "seconds": 127.1789565,
+      "promptTokens": 4284,
+      "generatedTokensPerSecond": 10.929481089,
+      "repeatedSystemTokenizations": 0,
+      "systemBytesSent": 0
+    }
+  },
+  "dense": {
+    "scope": "64 single-stage synthetic inference sequences; not full files",
+    "charactersPerRequest": 6000,
+    "deadlineMs": 900000,
+    "completedRequests": 64,
+    "seconds": 644.260840125,
+    "promptTokens": 320448,
+    "peakFootprintBytes": 20998529184,
+    "budgetBytes": 32000000000
+  },
+  "largeLog": {
+    "scope": "synthetic normalization, indexed persistence and full readback; no model inference",
+    "bytes": 355471360,
+    "chunks": 69632,
+    "seconds": 12.451041209,
+    "peakResidentBytes": 1900576768,
+    "integrity": true
+  }
+}

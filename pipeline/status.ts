@@ -43,7 +43,7 @@ function inspect(path: string, generation?: string) {
       .get(...args) as Counts;
     const roles = db
       .prepare(
-        `SELECT role,${columns} FROM jobs ${where} GROUP BY role ORDER BY role LIMIT 6`,
+        `SELECT role,${columns} FROM jobs ${where} GROUP BY role ORDER BY role LIMIT 32`,
       )
       .all(...args);
     const failures = db
@@ -52,7 +52,10 @@ function inspect(path: string, generation?: string) {
       )
       .all(...args);
     db.exec("COMMIT");
-    return { counts, roles, failures };
+    const inventory = db
+      .prepare("SELECT state,count(*) files FROM sources GROUP BY state")
+      .all();
+    return { counts, roles, failures, inventory };
   } finally {
     db.close();
   }
@@ -77,10 +80,10 @@ export async function status(work: string) {
     graphPath = join(work, "state", "graph.sqlite");
   const core = (await present(corePath))
     ? inspect(corePath)
-    : { counts: zero(), roles: [], failures: [] };
+    : { counts: zero(), roles: [], failures: [], inventory: [] };
   const graph = (await present(graphPath))
     ? inspect(graphPath, phase?.generation)
-    : { counts: zero(), roles: [], failures: [] };
+    : { counts: zero(), roles: [], failures: [], inventory: [] };
   const jobs = Object.fromEntries(
     Object.keys(zero()).map((key) => [
       key,
@@ -111,6 +114,7 @@ export async function status(work: string) {
         order.indexOf(String(b.role) as (typeof order)[number]),
     ),
     failures: [...core.failures, ...graph.failures].slice(0, 5),
+    inventory: core.inventory,
     graphScope: phase?.generation
       ? "current generation"
       : "all checkpoint history",

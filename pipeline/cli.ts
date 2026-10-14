@@ -14,6 +14,7 @@ import { configure, type Pipeline } from "./config.ts";
 import { boundaries } from "./run.ts";
 import { modelVersion, pool, bounds } from "./mlx.ts";
 import { status } from "./status.ts";
+import { Usage } from "./usage.ts";
 const [command, path] = process.argv.slice(2);
 if (
   !path ||
@@ -42,6 +43,13 @@ if (command === "status") {
     if (config.enrichment) throw Error("choose a profile or graph enrichment");
     config.roles = config.profile.stages.map((s) => s.name);
   }
+  if (
+    config.review &&
+    (!Array.isArray(config.review.after) ||
+      config.review.after.some((r) => !config.roles.includes(r)) ||
+      new Set(config.review.after).size !== config.review.after.length)
+  )
+    throw Error("invalid review stages");
   if (command === "run" || command === "resume" || command === "validate") {
     if (command === "resume") config.resume = true;
     const selected = JSON.parse(
@@ -128,16 +136,33 @@ if (command === "status") {
         "production requires packaged role artifacts with unchanged base weights",
       );
     config.model = await modelVersion(config.mlx, config.roles);
+    const usage = new Usage(
+      join(config.work, "state", "usage.sqlite"), config.model, "unassigned",
+    );
     const workers = pool(config.mlx);
+    const infer = (r: import("./run.ts").Request) =>
+      usage.measure(r.id, r.role, r.attempt, () => workers.infer(r), r.configHash);
     try {
       await workers.ready;
       const report = config.profile
-        ? await run(config, (r) => workers.infer(r))
-        : await enrich(config, (r) => workers.infer(r));
-      console.log(JSON.stringify(report));
+        ? await run(config, infer)
+        : await enrich(config, infer);
+      // Full integrity evidence remains in state; keep terminal output bounded.
+      const core = "chunks" in report ? report.chunks : report;
+      const summary = {
+        ...core,
+        sources: undefined,
+        errors: core.errors.slice(0, 20),
+        errorCount: core.errors.length,
+      };
+      console.log(
+        JSON.stringify(
+          "chunks" in report ? { ...report, chunks: summary } : summary,
+        ),
+      );
       if (!report.integrity) process.exitCode = 1;
     } finally {
-      await workers.close();
+      try { await workers.close(); } finally { usage.close(); }
     }
   }
 }

@@ -48,6 +48,9 @@ test("aggregate memory breach kills children even when they ignore SIGTERM", asy
       await readFile(join(root, "state/resources.json"), "utf8"),
     );
     assert.ok(resources.budgetExceeded);
+    assert.ok(resources.processesAtPeak.some((p:{role:string})=>p.role==="application"));
+    assert.ok(resources.processesAtPeak.some((p:{role:string})=>p.role==="worker:0"));
+    assert.equal(resources.processesAtPeak.reduce((sum:number,p:{footprintBytes:number})=>sum+p.footprintBytes,0),resources.peakFootprintBytes);
     assert.ok(resources.peakFootprintBytes > resources.budgetBytes);
     assert.ok(performance.now() - start < 6000);
   } finally {

@@ -72,3 +72,16 @@ test("sealed extractor executes only under OS restrictions and participates in r
   await assert.rejects(inspect(ext, input), /integrity/);
   await assert.rejects(inspect({ ...ext, directory: input }, input), /overlap/);
 });
+
+test("oversized binary input stays unsupported with a complete source hash", async () => {
+  const root = await mkdtemp(join(tmpdir(), "binary-budget-"));
+  const path = join(root, "fixture.bin");
+  await writeFile(path, Buffer.alloc(4096));
+  const result = await source(root, path, 128, 64);
+  assert.equal(result.state, "unsupported");
+  assert.equal(result.reason, "binary format has no installed extractor");
+  assert.equal(result.hash?.length, 64);
+  const text = join(root, "large.log");
+  await writeFile(text, "A".repeat(4096));
+  assert.equal((await source(root, text, 128, 64)).state, "failed");
+});

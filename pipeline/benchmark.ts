@@ -1,3 +1,4 @@
+import { assets } from "./local.ts";
 import { mkdir, mkdtemp, writeFile, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { launch, assertNetworkDenied } from "./sandbox.ts";
@@ -13,8 +14,8 @@ const batch = Number(process.argv[4] ?? 16),
   count = Number(process.argv[5] ?? 1);
 const prefill = Number(process.argv[7] ?? batch);
 const model: Model = {
-  runtime: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-  base: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+  runtime: assets().runtime,
+  base: assets().base,
   adapters: {
     summarize: join(import.meta.dirname, "../models/anchors-experiment"),
   },

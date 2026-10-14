@@ -133,6 +133,9 @@ test("operator validate accepts external profiles without processing input or cr
   await writeFile(join(input, "data.txt"), "Protected fixture content");
   await writeFile(join(root, "profile.json"), JSON.stringify(spec));
   await pack(base, out, spec);
+  const runtime=join(root,"runtime");
+  await mkdir(join(runtime,"bin"),{recursive:true});
+  await writeFile(join(runtime,"bin/python3"),"#!/bin/sh\nexit 1\n",{mode:0o755});
   const cfg = {
     input: "./input",
     work: "./work",
@@ -144,7 +147,7 @@ test("operator validate accepts external profiles without processing input or cr
     attempts: 1,
     maxBytes: 10000,
     mlx: {
-      runtime: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
+      runtime,
       base: "./base",
       package: "./model",
       adapters: {},

@@ -1,3 +1,4 @@
+import { gates, decide } from "../review.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
@@ -23,6 +24,7 @@ test("all six stages produce attributable graph outputs and resume without repea
       "connect",
     ],
     enrichment: { namespace: "fixture" },
+    review: { after: ["tag", "reconcile", "connect"] },
     engine: "synthetic",
     model: "fixture",
     chunkSize: 128,
@@ -91,7 +93,26 @@ test("all six stages produce attributable graph outputs and resume without repea
       unknowns: [],
     };
   };
-  const report = await enrich(cfg, infer);
+  let stop = false;
+  const operator = (async () => {
+    while (!stop) {
+      for (const gate of await gates(cfg.work))
+        if (gate.state === "waiting")
+          decide(cfg.work, String(gate.id), "approve");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  })();
+  let report;
+  try {
+    report = await enrich(cfg, infer);
+  } finally {
+    stop = true;
+    await operator;
+  }
+  assert.equal(
+    (await gates(cfg.work)).filter((g) => g.state === "approve").length,
+    3,
+  );
   assert.ok(report.integrity);
   assert.equal(report.completed, 2);
   assert.equal(report.graph.candidates, 1);

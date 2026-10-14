@@ -15,9 +15,7 @@ export async function assertNetworkDenied() {
   await new Promise<void>((ok, no) => {
     const s = new Socket();
     s.on("error", (e: NodeJS.ErrnoException) =>
-      e.code === "EPERM"
-        ? ok()
-        : no(Error("OS network denial not established: " + e.code)),
+      e.code === "EPERM" ? ok() : no(Error("OS network denial not established: " + e.code)),
     );
     s.on("connect", () => {
       s.destroy();
@@ -37,8 +35,7 @@ export async function launch(
   args: string[],
   model?: Model,
 ) {
-  if (process.platform !== "darwin")
-    throw Error("only verified macOS sandbox supported");
+  if (process.platform !== "darwin") throw Error("only verified macOS sandbox supported");
   const paths = await boundaries(input, work);
   await mkdir(join(paths.work, "state"), { recursive: true });
   const launchId = randomUUID();
@@ -48,6 +45,13 @@ export async function launch(
   });
   const env = {
     PATH: "/usr/bin:/bin",
+    ...(model
+      ? {
+          PIPELINE_RUNTIME: model.runtime,
+          PIPELINE_BASE: model.base,
+          ...(model.package ? { PIPELINE_PACKAGE: model.package } : {}),
+        }
+      : {}),
     HOME: paths.work,
     TMPDIR: paths.work,
     HF_HUB_OFFLINE: "1",
@@ -69,7 +73,7 @@ export async function launch(
       model.base,
       join(import.meta.dirname, "worker.py"),
       model.package ?? model.adapters[roles[0]],
-      [join(import.meta.dirname, "decoder.py")],
+      [join(import.meta.dirname, "decoder.py"), join(import.meta.dirname, "admission.py")],
     );
     const spec = join(paths.work, "state", `launcher-${launchId}.json`);
     await writeFile(
@@ -94,9 +98,7 @@ export async function launch(
           String(model.prefillSize ?? model.batchSize),
           model.roleMode ?? "packaged",
         ],
-        application: argv
-          .slice(0, 0)
-          .concat(["/usr/bin/sandbox-exec", ...argv]),
+        application: argv.slice(0, 0).concat(["/usr/bin/sandbox-exec", ...argv]),
       }),
       { mode: 0o600 },
     );

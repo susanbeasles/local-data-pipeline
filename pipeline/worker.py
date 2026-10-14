@@ -108,14 +108,31 @@ class Engine(BatchGenerator):
             token=int(index.item());constraint.consume(token);selected.append(token)
         return mx.array(selected)
 generator=Engine(Meter(),stop_tokens=stop,completion_batch_size=capacity,prefill_batch_size=prefill)
-print(json.dumps({'ready':True,'loadSeconds':time.perf_counter()-started,'architecture':'role-package','initialization':initial}),flush=True)
-import queue,threading
+import queue,threading,math
+from collections import deque
+_admit_spec=importlib.util.spec_from_file_location("local_admission",Path(__file__).with_name("admission.py"));_admission=importlib.util.module_from_spec(_admit_spec);_admit_spec.loader.exec_module(_admission)
+model_config=json.loads((base/"config.json").read_text())
+heads=model_config["num_attention_heads"];kv_heads=model_config.get("num_key_value_heads",heads);dim=model_config.get("head_dim",model_config["hidden_size"]//heads)
+# Measure the resident role-cache representation rather than assuming that the
+# weights' dtype equals the KV dtype. Inline benchmarking uses sealed model dtype.
+kv_bytes=model_config["num_hidden_layers"]*2*kv_heads*dim*(2 if model_config.get("torch_dtype") in ("float16","bfloat16") else 4)
+if initialized:
+    sample=next(iter(initialized.values()))
+    measured=sum(value.nbytes for _,values,_ in sample['state'] for value in values if hasattr(value,'nbytes'))
+    if not measured:raise RuntimeError("cannot measure model KV cache layout")
+    kv_bytes=max(kv_bytes,math.ceil(measured/len(sample['prefix'])))
+# Reserve forward scratch space and allocator cache in addition to resident weights.
+kv_budget=memory-mx.get_active_memory()-max(4*1024**3,int(memory*.20))-min(memory//8,1024**3)
+if kv_budget<=0:raise RuntimeError("model initialization leaves no safe KV reservation budget")
+waiting=deque()
 incoming=queue.Queue(maxsize=capacity)
 def read_requests():
     for line in sys.stdin:incoming.put(line)
     incoming.put(None)
 threading.Thread(target=read_requests,daemon=True).start()
-active={};eof=False;reused=0;request_templates=0;request_system_tokenizations=0
+active={};eof=False;reused=0;request_templates=0;request_system_tokenizations=0;last_progress=time.monotonic()
+initial['memoryAdmission']={'kvBytesPerToken':kv_bytes,'kvBudgetBytes':kv_budget,'slots':capacity,'paddingBlock':256}
+print(json.dumps({'ready':True,'loadSeconds':time.perf_counter()-started,'architecture':'role-package','initialization':initial}),flush=True)
 
 def submit(request,stage='main',history=None):
     global reused,request_templates,request_system_tokenizations
@@ -146,16 +163,32 @@ def submit(request,stage='main',history=None):
         prompt=tokenizer.apply_chat_template([{'role':'system','content':config['system']},{'role':'user','content':content}],tokenize=True,add_generation_prompt=True,enable_thinking=False)
         cache=None;prefix_tokens=0;request_templates+=1;request_system_tokenizations+=1
     if prefix_tokens+len(prompt)+config['maxTokens']>context:raise ValueError('context budget exceeded; complete input rejected without truncation')
-    constraint=Constraint(config,payload)
-    uid=generator.insert([prompt],max_tokens=config['maxTokens'],caches=[cache])[0];generator.constraints[uid]=constraint
-    active[uid]={'request':request,'stage':stage,'history':history or [],'tokens':[],'inputTokens':len(prompt),'inputHash':hashlib.sha256(content.encode()).hexdigest(),'systemHash':hashlib.sha256(config['system'].encode()).hexdigest(),'checkCount':check_count if stage=='presence' else 0}
+    reserved=prefix_tokens+len(prompt)+config['maxTokens']
+    if not _admission.allows([],reserved,kv_bytes,kv_budget,capacity):
+        raise ValueError('complete sequence cannot fit safe KV memory budget; input was not truncated')
+    waiting.append({'prompt':prompt,'cache':cache,'config':config,'payload':payload,'item':{'request':request,'stage':stage,'history':history or [],'tokens':[],'inputTokens':len(prompt),'inputHash':hashlib.sha256(content.encode()).hexdigest(),'systemHash':hashlib.sha256(config['system'].encode()).hexdigest(),'checkCount':check_count if stage=='presence' else 0,'reservedTokens':reserved}})
+
+    print(json.dumps({'id':request['id'],'queued':True}),flush=True)
+
+def admit():
+    while waiting:
+        prepared=waiting[0]
+        if not _admission.allows([item['reservedTokens'] for item in active.values()],prepared['item']['reservedTokens'],kv_bytes,kv_budget,capacity):break
+        waiting.popleft()
+        try:
+            constraint=Constraint(prepared['config'],prepared['payload'])
+            uid=generator.insert([prepared['prompt']],max_tokens=prepared['config']['maxTokens'],caches=[prepared['cache']])[0]
+            generator.constraints[uid]=constraint;active[uid]=prepared['item']
+            print(json.dumps({'id':prepared['item']['request']['id'],'admitted':True}),flush=True)
+        except Exception as error:
+            print(json.dumps({'id':prepared['item']['request']['id'],'error':type(error).__name__+': '+str(error)}),flush=True)
 
 def emit(item,result,assessment,history):
     print(json.dumps({'id':item['request']['id'],'result':result,'inputTokens':sum(p['inputTokens'] for p in history),'outputTokens':sum(p['outputTokens'] for p in history),'peakBytes':mx.get_peak_memory(),'trace':{'assessment':assessment,'phases':history,'id':item['request']['id'],'role':item['request']['role'],'inputHash':item['inputHash'],'systemHash':hashlib.sha256(configs[item['request']['role']]['system'].encode()).hexdigest(),'resultHash':hashlib.sha256(json.dumps(result,sort_keys=True,separators=(',',':')).encode()).hexdigest()},'engineStats':{'refills':generator.refills,'promptTokens':generator._stats.prompt_tokens,'promptSeconds':generator._stats.prompt_time,'generationTokens':generator._stats.generation_tokens,'generationSeconds':generator._stats.generation_time,'fixedTokensReused':reused,'requestSystemTokenizations':request_system_tokenizations,'requestTemplates':request_templates},'forwards':forwards}),flush=True)
 
 try:
-    while not eof or active:
-        while not eof and len(active)<capacity:
+    while not eof or active or waiting:
+        while not eof and len(active)+len(waiting)<capacity:
             try:line=incoming.get(timeout=0.01 if active else 0.1)
             except queue.Empty:break
             if line is None:eof=True;break
@@ -166,8 +199,14 @@ try:
                 if mode=='inline' and request.get('system')!=config['system']:raise ValueError('baseline instructions differ from artifact')
                 submit(request,'presence' if 'presence' in config else 'main')
             except Exception as error:print(json.dumps({'id':request.get('id'),'error':type(error).__name__+': '+str(error)}),flush=True)
+        admit()
         if not active:continue
-        for response in generator.next():
+        responses=generator.next()
+        now=time.monotonic()
+        if now-last_progress>=2:
+            print(json.dumps({'progress':True,'active':len(active),'queued':len(waiting),'reservedKVBytes':_admission.footprint([item['reservedTokens'] for item in active.values()],kv_bytes),'kvBudgetBytes':kv_budget,'generationTokens':generator._stats.generation_tokens,'promptTokens':generator._stats.prompt_tokens,'peakBytes':mx.get_peak_memory()}),flush=True)
+            last_progress=now
+        for response in responses:
             item=active[response.uid]
             if response.finish_reason!='stop':item['tokens'].append(response.token)
             if response.finish_reason is not None:

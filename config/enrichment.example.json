@@ -17,14 +17,14 @@
   "chunkSize": 6000,
   "concurrency": 64,
   "attempts": 3,
-  "maxBytes": 67108864,
+  "maxBytes": 536870912,
   "mlx": {
-    "runtime": "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-    "base": "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
-    "package": "/Users/avespoli/local-data-pipeline/models/qwen-roles-v14",
+    "runtime": "../.venv",
+    "base": "../models/qwen2.5-3b",
+    "package": "../models/qwen-roles-v14",
     "adapters": {},
     "roleMode": "packaged",
     "maxTokens": 1600,
-    "timeoutMs": 180000
+    "timeoutMs": 900000
   }
 }

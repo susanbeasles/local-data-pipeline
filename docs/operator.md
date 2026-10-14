@@ -2,7 +2,7 @@
 
 Controlled six-stage synthetic acceptance passed in both inline and packaged modes. The default is one shared-weight resident model with 64 continuous-batching slots and prefill admission of four. This establishes the tested fixtures, not unrestricted semantic accuracy or sustained production throughput. See `docs/verification.md` for measurements and limitations.
 
-The production command is `node pipeline/cli.ts run /absolute/config.json`, from `/Users/avespoli/local-data-pipeline`. Do not run it against the corpus until execution is separately authorized. The command performs all six ordered stages: tag, classify, summarize, knowledge, reconcile, connect. The last two adjudicate entity pairs across chunk results.
+The production command is `node pipeline/cli.ts run /absolute/config.json`, from `<checkout>`. Do not run it against the corpus until execution is separately authorized. The command performs all six ordered stages: tag, classify, summarize, knowledge, reconcile, connect. The last two adjudicate entity pairs across chunk results.
 
 Use `config/enrichment.example.json` as a template. Set an explicit existing input directory, a disjoint work directory, and the namespace. Input is a logical read-only reference: no relocation, migration, cleanup or generated files in the input directory. Work contains `staging/`, `state/` and `output/`; model role packages are under this project's `models/`. Existing model weights and the installed Python runtime are read-only local dependencies.
 
@@ -33,3 +33,34 @@ Run `npm test` and `npx tsc --noEmit`. Run `node pipeline/enrichment-benchmark.t
 `node pipeline/verify.ts check /absolute/input /absolute/work` checks saved source hashes, chunk coverage and output artifacts under the OS network/input-write restrictions, without loading a model or doing inference. An integrity pass verifies attribution and coverage, not semantic correctness.
 
 UTF-8 text and valid text JSONL are normalized losslessly (line endings) and fully chunked. Binary formats without extractors, symlinks/special files and protected credential paths have explicit unsupported dispositions. Invalid UTF-8/JSONL is invalid. Files exceeding configured extraction memory fail explicitly; no truncation is used. All unordered entity pairs are currently adjudicated, giving quadratic graph work. These are material capability and scaling limits, not permission to skip work.
+
+## Review, recovery and customization
+
+See [console.md](console.md) for the authenticated local control panel and durable stage approvals. See [reuse.md](reuse.md) for custom profiles, schemas, sealed role packages and extractors. Adding/removing stages is a profile change: build a matching role artifact and use a separate work directory when changing processing semantics. Existing production checkpoints belong to their original model/configuration identity.
+
+From the project directory:
+
+```sh
+npm run check
+npm test
+node pipeline/cli.ts validate /absolute/config.json
+node pipeline/cli.ts run /absolute/config.json
+node pipeline/cli.ts resume /absolute/config.json
+npm run status -- /absolute/work-directory
+npm run console -- /absolute/work-directory 8765
+```
+
+Resume reacquires the processing lock, validates cached stages and output hashes, recovers interrupted leases and preserves completed valid results. Failed integrity exits unsuccessfully; pending jobs are never represented as completed. Review-enabled runs wait for explicit approval, and incomplete stages cannot be approved. Unknown input formats and configured resource/context limits receive explicit dispositions; install a matching extractor or correct configuration rather than silently dropping them. Keep inputs, staging, state, models and output paths separate.
+
+The six-stage example uses a 512 MiB extraction limit and 900-second inference deadline. Dense prompts can spend several minutes in batched prefill before the first result; the timeout is a configurable wall-clock deadline, not a token limit. Engine diagnostics distinguish progress from completion. Increase the deadline explicitly when deeper role outputs need it; never reduce source coverage or schema requirements to fit a benchmark. Large indexed stages retain complete text in staged JSONL and compact offset/hash metadata in their source snapshot.
+
+
+### Machine-local paths
+
+Production input, work, Python runtime, base model, and role-package paths belong in operator-owned JSON outside tracked source. Relative paths in a run configuration resolve from that JSON file's directory. The checked-in examples use checkout-relative `.venv` and `models/` paths; they are conventions, not preinstalled artifacts. Existing local configurations and model files are not moved or rewritten by portability changes.
+
+Synthetic MLX tools and installed-runtime tests use `PIPELINE_CONFIG=/absolute/local/run.json` to obtain only `mlx.runtime`, `mlx.base`, and `mlx.package`. Explicit `PIPELINE_RUNTIME`, `PIPELINE_BASE`, and `PIPELINE_PACKAGE` override those bindings. Without configuration they use `.venv`, `models/qwen2.5-3b`, and `models/qwen-roles-v14` in the checkout. Missing dependencies fail explicitly; they are not silently skipped. The sandbox supervisor passes only these explicit model bindings to synthetic child tools, alongside its existing restricted environment. No cloud credentials are inherited.
+
+The worker sandbox derives the actual interpreter/framework and Python library version from the selected local runtime. System paths such as `/usr/bin/sandbox-exec` remain platform requirements; no account home is embedded in the policy. Integration tests continue to establish actual network, file-read/write, and process-fork denial.
+
+`config/python.lock.txt` contains version pins, not local wheel URLs. For offline setup supply an operator-owned wheel directory with pip's `--no-index --find-links` options; no installation or downloads happen during path resolution.

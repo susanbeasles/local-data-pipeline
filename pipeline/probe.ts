@@ -1,3 +1,4 @@
+import { assets } from "./local.ts";
 /** Controlled synthetic arrival probe; no production configuration or data access. */
 import { mkdir, mkdtemp, writeFile, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,8 +8,8 @@ import { run, type Config } from "./run.ts";
 import { check, describe } from "./metrics.ts";
 import { hash, atomic } from "./store.ts";
 const model: Model = {
-  runtime: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
-  base: "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
+  runtime: assets().runtime,
+  base: assets().base,
   adapters: {
     summarize: join(import.meta.dirname, "../models/anchors-experiment"),
   },

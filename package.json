@@ -9,7 +9,11 @@
     "test": "node --test pipeline/tests/*.test.ts",
     "benchmark": "node pipeline/enrichment-benchmark.ts",
     "check": "tsc --noEmit",
-    "verify": "node pipeline/verify.ts check"
+    "verify": "node pipeline/verify.ts check",
+    "console": "node pipeline/console.ts",
+    "status": "node pipeline/status.ts",
+    "acceptance": "node pipeline/enrichment-benchmark.ts",
+    "load": "node pipeline/tests/load.ts"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

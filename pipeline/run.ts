@@ -1,3 +1,4 @@
+import { review, type Review, type Receipt } from "./review.ts";
 import { phase } from "./progress.ts";
 import { load as loadExtractor, type Extension } from "./extractor.ts";
 import {
@@ -7,7 +8,7 @@ import {
 } from "./profile.ts";
 import { validRole, type Role } from "./roles.ts";
 import { Jobs } from "./jobs.ts";
-import { Stage } from "./stage.ts";
+import { Stage, type Snapshot } from "./stage.ts";
 import { Lock } from "./lock.ts";
 import { WorkerFailure } from "./errors.ts";
 import { proof } from "./proof.ts";
@@ -21,7 +22,7 @@ import {
   readdir,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { fileHash } from "./seal.ts";
 import { Store, hash, atomic } from "./store.ts";
 import { source, discover, type Source, type Chunk } from "./source.ts";
@@ -38,6 +39,7 @@ export type Config = {
   timeoutMs?: number;
   enrichment?: { namespace: string };
   resume?: boolean;
+  review?: Review;
   profile?: Profile;
   extractor?: Extension;
 };
@@ -192,27 +194,12 @@ export async function run(config: Config, infer: Inference) {
       }
       const stage = join(config.work, "staging", s.id + ".json");
       s.chunkFile = join(config.work, "staging", s.id + ".jsonl");
-      const jsonl = s.chunks
-        .map(
-          (c) =>
-            JSON.stringify({
-              source: s.id,
-              sourceHash: s.hash,
-              normalizedHash: s.normalizedHash,
-              ...c,
-            }) + "\n",
-        )
-        .join("");
-      await atomic(s.chunkFile, jsonl, true);
-      s.chunkHash = hash(jsonl);
-      await atomic(stage, {
-        ...s,
+      const stageHash = await Stage.write(stage, s, {
         roles: config.roles,
         enrichment: config.enrichment,
         profile: config.profile,
         configHash,
       });
-      const stageHash = hash(await readFile(stage));
       store.transaction(() => {
         db.prepare(
           "INSERT OR REPLACE INTO sources VALUES(?,?,?,?,?,?,?,?)",
@@ -297,7 +284,7 @@ export async function run(config: Config, infer: Inference) {
               String(src.stage),
               String(src.stageHash),
             ),
-            chunk = data.chunks[Number(job.chunk)];
+            chunk = await Stage.chunk(data, Number(job.chunk));
           if (!chunk || hash(chunk.text) !== chunk.hash)
             throw Error("chunk hash mismatch");
           const request: Request = {
@@ -475,8 +462,61 @@ export async function run(config: Config, infer: Inference) {
         ? config.roles
         : [undefined]) {
         if (aborted) break;
-        jobs = new Jobs(store, config.concurrency, role);
-        await Promise.all(Array.from({ length: config.concurrency }, worker));
+        for (;;) {
+          if (config.review?.after.length && role)
+            await phase(config.work, role, "running");
+          for (const j of db
+            .prepare(
+              "SELECT id,attempt FROM jobs WHERE role=? AND state!='completed'",
+            )
+            .all(role ?? null))
+            ceilings.set(String(j.id), Number(j.attempt) + config.attempts);
+          jobs = new Jobs(store, config.concurrency, role);
+          await Promise.all(Array.from({ length: config.concurrency }, worker));
+          if (aborted || !role || !config.review?.after.includes(role)) break;
+          const receipts = db
+            .prepare(
+              "SELECT id,state,outputHash,attempt FROM jobs WHERE role=? ORDER BY id",
+            )
+            .all(role) as Receipt[];
+          const failures = db
+            .prepare(
+              "SELECT id,state,stageHash FROM sources WHERE state IN ('failed','invalid') ORDER BY id",
+            )
+            .all();
+          receipts.push(
+            ...failures.map((r) => ({
+              id: "source:" + String(r.id),
+              state: String(r.state),
+              outputHash: r.stageHash,
+              attempt: 0,
+            })),
+          );
+          const decision = await review(
+            config.work,
+            role,
+            configHash,
+            receipts,
+            config.resume,
+          );
+          if (decision === "reject")
+            throw Error(
+              "Review rejected stage: " +
+                role +
+                "; use explicit resume after resolving review",
+            );
+          if (decision === "approve") break;
+          if (failures.length)
+            throw Error(
+              "Source preparation failures require explicit resume after correcting input/configuration",
+            );
+          store.transaction(() => {
+            for (const later of config.roles.slice(config.roles.indexOf(role)))
+              db.prepare(
+                "UPDATE jobs SET state='pending',error='operator requested stage retry' WHERE role=?",
+              ).run(later);
+          });
+        }
       }
     } finally {
       clearInterval(timer);
@@ -562,7 +602,7 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
       }
       const data = JSON.parse(
         await readFile(String(s.stage), "utf8"),
-      ) as Source & {
+      ) as Snapshot & {
         roles: string[];
         enrichment?: { namespace: string };
         profile?: Profile;
@@ -584,11 +624,28 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
         !data.chunkFile ||
         !data.chunkHash ||
         !(await intact(data.chunkFile, data.chunkHash))
-      )
+      ) {
         errors.push("chunk-jsonl:" + s.id);
+        continue;
+      }
       if (data.state !== "pending") continue;
+      async function checkedChunk(index: number) {
+        try {
+          return await Stage.chunk(data, index);
+        } catch (error) {
+          errors.push("chunk:" + s.id + ":" + index + ":" + String(error));
+          return undefined;
+        }
+      }
       let end = 0;
-      for (const c of data.chunks) {
+      const normalized = createHash("sha256");
+      for (let index = 0; index < data.chunks.length; index++) {
+        const c = await checkedChunk(index);
+        if (!c) {
+          errors.push("missing-chunk:" + index);
+          continue;
+        }
+        normalized.update(c.text);
         if (
           c.start !== end ||
           c.end !== c.start + c.text.length ||
@@ -597,7 +654,7 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
           errors.push("chunk:" + c.id);
         end = c.end;
       }
-      if (hash(data.chunks.map((c) => c.text).join("")) !== data.normalizedHash)
+      if (normalized.digest("hex") !== data.normalizedHash)
         errors.push("normalized:" + s.id);
       if (s.state === "completed") {
         const jobs = db.prepare("SELECT * FROM jobs WHERE source=?").all(s.id);
@@ -624,7 +681,7 @@ export async function verify(work: string, input?: string, chunksOnly = false) {
                   ? validRole(j.role as Role, result.result, result.payload)
                   : valid(
                       result.result,
-                      data.chunks[Number(j.chunk)]?.text ?? "",
+                      (await checkedChunk(Number(j.chunk)))?.text ?? "",
                     ))
             )
               errors.push("attribution:" + j.id);
