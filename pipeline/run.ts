@@ -1,3 +1,4 @@
+import { review, type Review, type Receipt } from "./review.ts";
 import { phase } from "./progress.ts";
 import { load as loadExtractor, type Extension } from "./extractor.ts";
 import {
@@ -38,6 +39,7 @@ export type Config = {
   timeoutMs?: number;
   enrichment?: { namespace: string };
   resume?: boolean;
+  review?: Review;
   profile?: Profile;
   extractor?: Extension;
 };
@@ -475,8 +477,61 @@ export async function run(config: Config, infer: Inference) {
         ? config.roles
         : [undefined]) {
         if (aborted) break;
-        jobs = new Jobs(store, config.concurrency, role);
-        await Promise.all(Array.from({ length: config.concurrency }, worker));
+        for (;;) {
+          if (config.review?.after.length && role)
+            await phase(config.work, role, "running");
+          for (const j of db
+            .prepare(
+              "SELECT id,attempt FROM jobs WHERE role=? AND state!='completed'",
+            )
+            .all(role ?? null))
+            ceilings.set(String(j.id), Number(j.attempt) + config.attempts);
+          jobs = new Jobs(store, config.concurrency, role);
+          await Promise.all(Array.from({ length: config.concurrency }, worker));
+          if (aborted || !role || !config.review?.after.includes(role)) break;
+          const receipts = db
+            .prepare(
+              "SELECT id,state,outputHash,attempt FROM jobs WHERE role=? ORDER BY id",
+            )
+            .all(role) as Receipt[];
+          const failures = db
+            .prepare(
+              "SELECT id,state,stageHash FROM sources WHERE state IN ('failed','invalid') ORDER BY id",
+            )
+            .all();
+          receipts.push(
+            ...failures.map((r) => ({
+              id: "source:" + String(r.id),
+              state: String(r.state),
+              outputHash: r.stageHash,
+              attempt: 0,
+            })),
+          );
+          const decision = await review(
+            config.work,
+            role,
+            configHash,
+            receipts,
+            config.resume,
+          );
+          if (decision === "reject")
+            throw Error(
+              "Review rejected stage: " +
+                role +
+                "; use explicit resume after resolving review",
+            );
+          if (decision === "approve") break;
+          if (failures.length)
+            throw Error(
+              "Source preparation failures require explicit resume after correcting input/configuration",
+            );
+          store.transaction(() => {
+            for (const later of config.roles.slice(config.roles.indexOf(role)))
+              db.prepare(
+                "UPDATE jobs SET state='pending',error='operator requested stage retry' WHERE role=?",
+              ).run(later);
+          });
+        }
       }
     } finally {
       clearInterval(timer);

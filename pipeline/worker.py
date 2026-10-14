@@ -115,7 +115,7 @@ def read_requests():
     for line in sys.stdin:incoming.put(line)
     incoming.put(None)
 threading.Thread(target=read_requests,daemon=True).start()
-active={};eof=False;reused=0;request_templates=0;request_system_tokenizations=0
+active={};eof=False;reused=0;request_templates=0;request_system_tokenizations=0;last_progress=time.monotonic()
 
 def submit(request,stage='main',history=None):
     global reused,request_templates,request_system_tokenizations
@@ -167,7 +167,12 @@ try:
                 submit(request,'presence' if 'presence' in config else 'main')
             except Exception as error:print(json.dumps({'id':request.get('id'),'error':type(error).__name__+': '+str(error)}),flush=True)
         if not active:continue
-        for response in generator.next():
+        responses=generator.next()
+        now=time.monotonic()
+        if now-last_progress>=2:
+            print(json.dumps({'progress':True,'active':len(active),'generationTokens':generator._stats.generation_tokens,'promptTokens':generator._stats.prompt_tokens,'peakBytes':mx.get_peak_memory()}),flush=True)
+            last_progress=now
+        for response in responses:
             item=active[response.uid]
             if response.finish_reason!='stop':item['tokens'].append(response.token)
             if response.finish_reason is not None:

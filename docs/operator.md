@@ -33,3 +33,21 @@ Run `npm test` and `npx tsc --noEmit`. Run `node pipeline/enrichment-benchmark.t
 `node pipeline/verify.ts check /absolute/input /absolute/work` checks saved source hashes, chunk coverage and output artifacts under the OS network/input-write restrictions, without loading a model or doing inference. An integrity pass verifies attribution and coverage, not semantic correctness.
 
 UTF-8 text and valid text JSONL are normalized losslessly (line endings) and fully chunked. Binary formats without extractors, symlinks/special files and protected credential paths have explicit unsupported dispositions. Invalid UTF-8/JSONL is invalid. Files exceeding configured extraction memory fail explicitly; no truncation is used. All unordered entity pairs are currently adjudicated, giving quadratic graph work. These are material capability and scaling limits, not permission to skip work.
+
+## Review, recovery and customization
+
+See [console.md](console.md) for the authenticated local control panel and durable stage approvals. See [reuse.md](reuse.md) for custom profiles, schemas, sealed role packages and extractors. Adding/removing stages is a profile change: build a matching role artifact and use a separate work directory when changing processing semantics. Existing production checkpoints belong to their original model/configuration identity.
+
+From the project directory:
+
+```sh
+npm run check
+npm test
+node pipeline/cli.ts validate /absolute/config.json
+node pipeline/cli.ts run /absolute/config.json
+node pipeline/cli.ts resume /absolute/config.json
+npm run status -- /absolute/work-directory
+npm run console -- /absolute/work-directory 8765
+```
+
+Resume reacquires the processing lock, validates cached stages and output hashes, recovers interrupted leases and preserves completed valid results. Failed integrity exits unsuccessfully; pending jobs are never represented as completed. Review-enabled runs wait for explicit approval, and incomplete stages cannot be approved. Unknown input formats and configured resource/context limits receive explicit dispositions; install a matching extractor or correct configuration rather than silently dropping them. Keep inputs, staging, state, models and output paths separate.

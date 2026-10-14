@@ -42,6 +42,13 @@ if (command === "status") {
     if (config.enrichment) throw Error("choose a profile or graph enrichment");
     config.roles = config.profile.stages.map((s) => s.name);
   }
+  if (
+    config.review &&
+    (!Array.isArray(config.review.after) ||
+      config.review.after.some((r) => !config.roles.includes(r)) ||
+      new Set(config.review.after).size !== config.review.after.length)
+  )
+    throw Error("invalid review stages");
   if (command === "run" || command === "resume" || command === "validate") {
     if (command === "resume") config.resume = true;
     const selected = JSON.parse(
@@ -134,7 +141,19 @@ if (command === "status") {
       const report = config.profile
         ? await run(config, (r) => workers.infer(r))
         : await enrich(config, (r) => workers.infer(r));
-      console.log(JSON.stringify(report));
+      // Full integrity evidence remains in state; keep terminal output bounded.
+      const core = "chunks" in report ? report.chunks : report;
+      const summary = {
+        ...core,
+        sources: undefined,
+        errors: core.errors.slice(0, 20),
+        errorCount: core.errors.length,
+      };
+      console.log(
+        JSON.stringify(
+          "chunks" in report ? { ...report, chunks: summary } : summary,
+        ),
+      );
       if (!report.integrity) process.exitCode = 1;
     } finally {
       await workers.close();

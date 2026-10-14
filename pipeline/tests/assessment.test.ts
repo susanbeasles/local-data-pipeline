@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assess } from "../assess.ts";
 import { hash } from "../store.ts";
 test("an interrupted benchmark remains unstable without discarding passing evidence", async () => {
+  await mkdir(join(import.meta.dirname, "../../state"), { recursive: true });
   const root = await mkdtemp(
     join(import.meta.dirname, "../../state/workers-test-"),
   );

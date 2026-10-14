@@ -39,7 +39,7 @@ test("model sandbox denies network, arbitrary file reads, all writes and process
     "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/runtime",
     "/Users/avespoli/SonarMD-Dump-2026-10-09/enrichment/models/qwen2.5-3b-official",
     script,
-    "/Users/avespoli/local-data-pipeline/models/anchors-experiment",
+    "/Users/avespoli/code/local-data-pipeline/models/anchors-experiment",
   );
   try {
     const child = box.launch([script]);

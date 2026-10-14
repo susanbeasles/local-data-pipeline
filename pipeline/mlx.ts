@@ -139,6 +139,24 @@ export class Worker {
           readyOk();
           return;
         }
+        if (value.progress === true) {
+          if (
+            ![
+              value.active,
+              value.generationTokens,
+              value.promptTokens,
+              value.peakBytes,
+            ].every((n) => Number.isFinite(n) && n >= 0)
+          )
+            throw Error("invalid worker progress frame");
+          this.diagnostic = JSON.stringify({
+            active: value.active,
+            generationTokens: value.generationTokens,
+            promptTokens: value.promptTokens,
+            peakBytes: value.peakBytes,
+          });
+          return;
+        }
         const p = this.pending.get(value.id);
         if (!p) throw Error("worker response identity mismatch");
         clearTimeout(p.timer);
@@ -218,7 +236,13 @@ export class Worker {
     const refs = new Refs(r.payload);
     return new Promise<unknown>((ok, no) => {
       const timer = setTimeout(
-        () => this.fail(new WorkerFailure("inference timeout")),
+        () =>
+          this.fail(
+            new WorkerFailure(
+              "inference timeout; last engine progress: " +
+                (this.diagnostic || "none"),
+            ),
+          ),
         model.timeoutMs,
       );
       this.pending.set(r.id, {
