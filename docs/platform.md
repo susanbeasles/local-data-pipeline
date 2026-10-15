@@ -177,3 +177,13 @@ JSONL artifacts, the command bridge, restart recovery, schema readiness,
 authorization and root guards using synthetic fixtures. See
 [definitions](definitions.md), [execution](execution.md) and
 [metadata](metadata.md) for their narrower guarantees.
+
+### Measured model usage and replay
+
+The built-in `model.infer` adapter requires the admitted model's non-JSON proof annotation, matching the request identifier and role. Every inference phase must include measured input and output token counts. The adapter sums all phases, charges those tokens before validating the role response, and retains the proof with the role outcome. Missing or malformed proof fails closed; tokens are never estimated from text. Synthetic host callbacks in tests supply explicitly synthetic measurements rather than claiming to run MLX.
+
+Each enriched record retains `inference[role]` with run, step, admitted model key, original record hash, workflow digest, pinned input revision/hash, measured tokens and phase proof. Dataset replay reads one hash-verified saved checkpoint at a time and checks this provenance plus record identity before reusing an outcome. Completed revision reuse verifies the SQLite/JSONL mirror and still checks every input against its saved outcome. A changed source, workflow or model binding therefore cannot silently reuse an old result. Already checkpointed outcomes incur no new inference charge.
+
+Concurrent callbacks settle before an adapter failure returns, so successful measured responses are charged even when another response fails. The ordered successful prefix is checkpointed; successful responses after the first failed position can require inference again on retry because they were not committed. This preserves deterministic order and does not claim exactly-once external inference across crashes.
+
+Synthetic tests run the actual six-role ordered graph with real dataset revisions, verify exact token totals and retained role outcomes, interrupt and resume a prefix without repeating committed inference, and reject both changed input and corrupted checkpoint rows. They do not establish MLX quality or production throughput.

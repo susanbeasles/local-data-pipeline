@@ -31,7 +31,10 @@ def memory(pid):
 stop_event=threading.Event();samples=[];exceeded=False
 budget=config.get('budgetBytes',32_000_000_000)
 def stop(*args,force=False):
-    processes=([app] if app else [])+workers
+    # Signals give the application time to persist its checkpoint while its
+    # inference descriptors remain usable. Resource violations still kill all.
+    graceful=bool(args) and not force
+    processes=([app] if app else [])+([] if graceful else workers)
     for process in processes:
         if process.poll() is None:
             try:process.kill() if force else process.terminate()
@@ -39,7 +42,7 @@ def stop(*args,force=False):
     if not force:
         def escalate():
             time.sleep(5)
-            for process in processes:
+            for process in (([app] if app else [])+workers):
                 if process.poll() is None:
                     try:process.kill()
                     except ProcessLookupError:pass

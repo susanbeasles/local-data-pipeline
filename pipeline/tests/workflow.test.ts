@@ -1290,3 +1290,11 @@ test("failed input assembly counts packet separators before retaining each packe
   assert.ok(Buffer.byteLength(JSON.stringify(run.steps[1].inputs)) <= inputBudget);
   assert.ok(Buffer.byteLength(JSON.stringify(run)) <= 16 * 1024 ** 2);
 });
+
+test("registry exposes exact immutable references for JSON workflow authoring", () => {
+  const { registry, source } = fixture();
+  const refs = registry.references();
+  assert.ok(refs.types.some((ref) => ref.digest === source.digest && ref.id === source.id));
+  assert.ok(Object.isFrozen(refs) && Object.isFrozen(refs.types));
+  assert.ok(refs.contracts.length > 0);
+});

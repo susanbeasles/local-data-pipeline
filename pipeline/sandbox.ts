@@ -1,15 +1,29 @@
 import { randomUUID } from "node:crypto";
-import { realpath, mkdir, writeFile, mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
+import { realpath, mkdir, writeFile, mkdtemp, stat } from "node:fs/promises";
+import { join, resolve, isAbsolute, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawn } from "node:child_process";
 import { Socket } from "node:net";
 import { boundaries } from "./run.ts";
 import { sandbox } from "./legacy/sandbox.ts";
 import { bounds, type Model } from "./mlx.ts";
-export async function profile(input: string, work: string) {
+export type Access = { socket: string };
+export async function profile(input: string, work: string, access?: Access) {
   const p = await boundaries(input, work);
-  return `(version 1)\n(allow default)\n(deny network*)\n(deny file-write*)\n(allow file-write* (subpath ${JSON.stringify(p.work)}))\n(deny file-write* (subpath ${JSON.stringify(p.input)}))\n`;
+  let local = "";
+  if (access) {
+    if (!isAbsolute(access.socket)) throw Error("PostgreSQL socket must be absolute");
+    const socket = await realpath(access.socket);
+    if (socket !== resolve(access.socket))
+      throw Error("PostgreSQL socket must be canonical without aliases");
+    if (!socket.startsWith(p.work + sep))
+      throw Error("PostgreSQL socket must be inside work state");
+    const info = await stat(socket);
+    if (!info.isDirectory() || (info.mode & 0o022) !== 0)
+      throw Error("PostgreSQL socket directory permissions must not permit group/world writes");
+    local = `(allow network-outbound (literal ${JSON.stringify(join(socket, ".s.PGSQL.5432"))}))\n`;
+  }
+  return `(version 1)\n(allow default)\n(deny network*)\n${local}(deny file-write*)\n(allow file-write* (subpath ${JSON.stringify(p.work)}))\n(deny file-write* (subpath ${JSON.stringify(p.input)}))\n`;
 }
 export async function assertNetworkDenied() {
   await new Promise<void>((ok, no) => {
@@ -34,13 +48,14 @@ export async function launch(
   entry: string,
   args: string[],
   model?: Model,
+  access?: Access,
 ) {
   if (process.platform !== "darwin") throw Error("only verified macOS sandbox supported");
   const paths = await boundaries(input, work);
   await mkdir(join(paths.work, "state"), { recursive: true });
   const launchId = randomUUID();
   const file = join(paths.work, "state", `runtime-${launchId}.sb`);
-  await writeFile(file, await profile(paths.input, paths.work), {
+  await writeFile(file, await profile(paths.input, paths.work, access), {
     mode: 0o600,
   });
   const env = {
@@ -106,12 +121,18 @@ export async function launch(
     argv = [join(import.meta.dirname, "launch.py"), spec];
   }
   const child = spawn(command, argv, { stdio: "inherit", env });
+  const interrupt = () => child.kill("SIGINT");
+  const terminate = () => child.kill("SIGTERM");
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
   try {
     return await new Promise<number>((ok, no) => {
       child.once("error", no);
       child.once("exit", (code) => ok(code ?? 1));
     });
   } finally {
+    process.removeListener("SIGINT", interrupt);
+    process.removeListener("SIGTERM", terminate);
     await box?.close();
   }
 }

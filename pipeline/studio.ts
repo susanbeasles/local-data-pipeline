@@ -5,6 +5,7 @@ import { spawn, execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Socket } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
+import { binding, type Binding } from "./platform-client.ts";
 import { Catalog, type Source } from "./catalog.ts";
 import { Dataset, type Step, type Observer, validateSteps } from "./dataset.ts";
 import { Sessions, assist, type Provider, type FieldPacket } from "./sessions.ts";
@@ -20,6 +21,7 @@ export type Studio = {
   protectedRoots?: string[];
   readRoots?: string[];
   panel?: { script: string; config: string };
+  platform?: { config: string; guest?: Binding };
   file?: string;
   observer?: Observer;
 };
@@ -44,6 +46,18 @@ export async function configure(path: string): Promise<Studio> {
     !value.state
   )
     throw Error("invalid studio configuration");
+  if (value.platform) {
+    if (
+      Object.keys(value.platform).some(k => !["config", "guest"].includes(k)) ||
+      typeof value.platform.config !== "string" ||
+      !value.platform.config.trim()
+    )
+      throw Error("invalid platform configuration binding");
+    if (value.platform.guest !== undefined) {
+      value.platform.guest = binding(value.platform.guest);
+      if (!value.platform.config.startsWith("/") || value.platform.config.includes("\0") || value.platform.config.split("/").some(s => s === ".." || s === ".")) throw Error("absolute guest platform configuration required");
+    } else value.platform.config = resolve(base, value.platform.config);
+  }
   value.state = await canonical(resolve(base, value.state));
   value.sources = value.sources.map((s) => ({
     ...s,
@@ -213,6 +227,14 @@ async function active(config: Studio, id: string) {
   }
 }
 export async function command(config: Studio, action: string, input: Record<string, any> = {}) {
+  if (action === "platform") {
+    if (!config.platform)
+      throw Error(
+        "Workflow platform is not provisioned; configure an authorized operator configuration.",
+      );
+    const { request } = await import("./platform-client.ts");
+    return { result: await request(config.platform.config, input.action, input.input ?? {}, { guest: config.platform.guest }) };
+  }
   const catalog = new Catalog(config.sources, config.state),
     sessions = new Sessions(join(config.state, "sessions"), config.providers, {
       protectedRoots: [

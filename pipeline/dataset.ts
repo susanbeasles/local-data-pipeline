@@ -693,6 +693,18 @@ export class Dataset {
       throw Error("capture id must be a UUID");
     return this.publish(name, records, undefined, undefined, options?.id);
   }
+  /** Read one verified capture checkpoint without materializing the full saved prefix. */
+  checkpoint(id: string, index: number): RecordInput | undefined {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) || !Number.isSafeInteger(index) || index < 0)
+      throw Error("invalid capture checkpoint");
+    const revision = "rev-" + id;
+    const published = this.db.prepare("SELECT id FROM revisions WHERE id=?").get(revision);
+    const row = published
+      ? this.db.prepare("SELECT r.*,o.source,o.human_key FROM revision_items r JOIN originals o ON o.id=r.id WHERE r.revision=? AND r.n=?").get(revision,index)
+      : this.db.prepare("SELECT * FROM draft_items WHERE revision=? AND n=?").get(revision,index);
+    if (!row) return undefined;
+    return {id:String(row.id),source:String(row.source),key:String(row.human_key),body:decode(row,"capture checkpoint " + index)};
+  }
   revision(id: string): Revision {
     const row = this.db.prepare("SELECT * FROM revisions WHERE id=?").get(id);
     if (!row) throw Error("unknown revision: " + id);

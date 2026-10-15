@@ -478,6 +478,20 @@ export class Registry {
         throw Error("Resource binding conceals a required capability");
     return this.add("type", value as StepType);
   }
+  references(): Frozen<{ contracts: Ref[]; resources: Ref[]; adapters: Ref[]; types: Ref[] }> {
+    const refs = (kind: RegistryKind) =>
+      [...(this.entries.get(kind)?.values() ?? [])]
+        .map((entry) => entry.ref)
+        .sort((a, b) =>
+          compare(json([a.id, a.version, a.digest]), json([b.id, b.version, b.digest])),
+        );
+    return frozen({
+      contracts: refs("contract"),
+      resources: refs("resource"),
+      adapters: refs("adapter"),
+      types: refs("type"),
+    });
+  }
   manifest(): Frozen<Manifest> {
     const list = <T extends Identity>(kind: RegistryKind): T[] =>
       [...(this.entries.get(kind)?.values() ?? [])]

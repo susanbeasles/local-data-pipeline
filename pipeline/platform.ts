@@ -35,6 +35,7 @@ export type WorkerState = { processed: number; stopped: "signal" | "limit" };
 export type Action =
   | "health"
   | "registry"
+  | "capabilities"
   | "sources"
   | "tables"
   | "page"
@@ -468,6 +469,12 @@ export class Platform {
           status: "ready",
           mode: "batch",
           model: !!this.config.model,
+        }));
+      case "capabilities":
+        fields(input, [], "capabilities request");
+        return this.view(() => ({
+          registry: this.registry.manifest(),
+          refs: this.registry.references(),
         }));
       case "registry":
         fields(input, [], "registry request");

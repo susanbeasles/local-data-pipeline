@@ -115,6 +115,37 @@ export class Guest {
       throw Error("absolute guest command required");
     return this.invoke(["exec", this.config.name, ...command]);
   }
+  /** One bounded stdin/stdout exchange through the local Tart guest agent. */
+  async pipe(command: string[], input: string): Promise<string> {
+    const bound = 2 * 1024 ** 2;
+    if (!command.length || !isAbsolute(command[0]) || command.some(s => typeof s !== "string" || s.includes("\0")))
+      throw Error("absolute guest command required");
+    if (Buffer.byteLength(input) > bound) throw Error("guest input exceeds 2 MiB bound");
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.config.runner, ["exec", "-i", this.config.name, ...command], {
+        env: this.env(), stdio: ["pipe", "pipe", "pipe"], shell: false,
+      });
+      const chunks: Buffer[] = []; let bytes = 0, diagnostics = 0, settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return; settled = true; clearTimeout(timer);
+        if (error) { child.kill("SIGKILL"); reject(error); }
+        else resolve(Buffer.concat(chunks).toString("utf8"));
+      };
+      const timer = setTimeout(() => finish(Error("guest command timeout")), 120000);
+      child.stdout.on("data", (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > bound) finish(Error("guest output exceeds 2 MiB bound")); else chunks.push(chunk);
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        diagnostics += chunk.length;
+        if (diagnostics > bound) finish(Error("guest diagnostics exceed 2 MiB bound"));
+      });
+      child.once("error", () => finish(Error("guest command could not execute")));
+      child.once("close", code => finish(code === 0 ? undefined : Error("guest command failed")));
+      child.stdin.on("error", () => finish(Error("guest input delivery failed")));
+      child.stdin.end(input);
+    });
+  }
   async stop() {
     return this.invoke(["stop", this.config.name]);
   }

@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { digest, type Database, type Result, type Sql } from "../metadata.ts";
 import { Registry, type Budget, type Definition, type Policy } from "../workflow.ts";
+import { dispatch } from "../platform-client.ts";
 import { Platform, serve } from "../platform.ts";
 
 const budget: Budget = {
@@ -129,7 +130,11 @@ test("operator commands preview, publish and execute the same durable JSON graph
   const f = await fixture(t);
   const platform = await Platform.open(f.config, { database: f.database, registry: f.registry });
   t.after(() => platform.close());
-  const preview = (await platform.command("preview", f.document)) as {
+  await assert.rejects(
+    dispatch(platform, "work", { worker: "native" }),
+    /unsupported native platform action/,
+  );
+  const preview = (await dispatch(platform, "preview", f.document)) as {
     digest: string;
     plan: { steps: unknown[] };
   };
@@ -140,32 +145,32 @@ test("operator commands preview, publish and execute the same durable JSON graph
       .n,
     0,
   );
-  const version = (await platform.command("publish", f.document)) as { id: string; hash: string };
+  const version = (await dispatch(platform, "publish", f.document)) as { id: string; hash: string };
   assert.equal(version.hash, preview.digest);
-  assert.equal(((await platform.command("flows", {})) as unknown[]).length, 1);
-  const run = (await platform.command("run", {
+  assert.equal(((await dispatch(platform, "flows", {})) as unknown[]).length, 1);
+  const run = (await dispatch(platform, "run", {
     version: version.id,
     batch: { key: "operator" },
   })) as { id: string };
-  await platform.command("pause", { run: run.id });
+  await dispatch(platform, "pause", { run: run.id });
   assert.equal(
-    ((await platform.command("status", { run: run.id })) as { status: string }).status,
+    ((await dispatch(platform, "status", { run: run.id })) as { status: string }).status,
     "paused",
   );
   assert.equal(await platform.command("work", { worker: "operator" }), null);
-  await platform.command("resume", { run: run.id });
+  await dispatch(platform, "resume", { run: run.id });
   assert.equal(
     ((await platform.command("work", { worker: "operator" })) as { status: string }).status,
     "completed",
   );
-  const status = (await platform.command("status", { run: run.id })) as {
+  const status = (await dispatch(platform, "status", { run: run.id })) as {
     status: string;
     artifacts: { uri: string }[];
   };
   assert.equal(status.status, "completed");
   assert.equal(await readFile(new URL(status.artifacts[0].uri), "utf8"), "4\n7\n");
   await assert.rejects(
-    platform.command("run", { version: version.id, batch: { mode: "stream" } }),
+    dispatch(platform, "run", { version: version.id, batch: { mode: "stream" } }),
     /unsupported.*mode/,
   );
   await platform.close();
