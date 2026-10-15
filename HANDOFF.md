@@ -36,3 +36,11 @@ Operator paths belong in ignored local JSON configuration. Inputs remain read-on
 See `docs/platform.md`, `docs/studio.md`, `QUALIFICATION.md`, and `pipeline/DEPLOYMENT.md`. Pipeline PR: https://github.com/susanbeasles/local-data-pipeline/pull/6 . Infrastructure PR: https://github.com/susanbeasles/infra/pull/11 . Neither PR has been merged or infrastructure applied here.
 
 No new sustained production or VM performance measurement was made. The previously accepted 313 files/minute remains historical, not a new guest benchmark. Collection completeness and current ingestion status were not audited during this pass.
+
+## Final verification
+
+Fresh complete synthetic suite: **349 tests passed, zero failures, zero skips** (106 seconds). TypeScript typecheck passed. Graceful shutdown and forced memory termination regressions passed. Deployment artifact verification confirms required legacy imports and residency configuration are included.
+
+At the user's request, the compiled native dashboard was copied intact to `~/Applications/Pipeline.app` and opened successfully. The installed executable matches the built executable byte for byte. Opening the dashboard did not start or restart processing. VM provisioning is deferred; this is a dashboard installation, not production-run activation.
+
+The data-free source deployment map is at `dist/releases/c069648927d2ea55a09752f8912a1a16c9b3b901b88c9dc584ac9b0090958ef9/deployment.json`. Compiled native application: `dist/Pipeline.app`. Generated artifacts remain ignored and local.
