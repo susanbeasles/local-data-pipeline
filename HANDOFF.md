@@ -1,3 +1,13 @@
+# Current checkpoint — 2026-10-15
+
+This checkpoint publishes the previously local platform implementation for review; it is not a completed-platform or deployment claim. The definitions, durable execution, capability library, platform command service/worker, provisioning and guest PostgreSQL modules and their tests are now included in source. Older statements below saying those modules were not created are historical and superseded.
+
+Current independently verified blocker: `npm run check` fails in `pipeline/platform-worker.ts` because `sandbox.launch` accepts four or five arguments while the new worker supplies a sixth socket-access argument. The required exact Unix-socket policy is not implemented. The new platform code has not passed a fresh complete acceptance run. VM/backend qualification, native JSON workflow controls and the deployment bundle-to-resource map remain incomplete. No production workload or resource apply is performed by this checkpoint.
+
+The checkout also contains commit `18d60be`; the published `work/review-console` branch advanced independently to `fdf9853`. This checkpoint is published on `work/platform-checkpoint` so both histories are preserved pending reconciliation, without overwriting the validated remote branch. Local infrastructure source is in the companion `susanbeasles/infra` branch `work/local-pipeline-resources`; qualification receipts deliberately do not claim a verified VM/inference backend.
+
+---
+
 # Engineering handoff — 2026-10-15
 
 ## Status
