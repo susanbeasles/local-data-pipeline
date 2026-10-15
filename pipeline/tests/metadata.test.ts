@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { readFile, mkdtemp, writeFile, rm,symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,6 +10,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { Workflow, Registry, type Budget } from "../workflow.ts";
 import {
   Metadata,
+  Postgres,
   Files,
   digest,
   type Database,
@@ -678,4 +679,27 @@ test("a composed metadata transaction rolls back direct registry rows when publi
     (await f.db.query("SELECT count(*)::integer n FROM platform.contracts")).rows[0].n,
     0,
   );
+});
+
+test('scoped composition authorizes reads and execution without granting configuration',async t=>{
+  const f=await fixture(t);
+  await f.db.query("DELETE FROM platform.grants WHERE principal_id=$1 AND permission<>'view'",[f.scope.principal]);
+  const result=await f.metadata.transaction(async(_metadata,sql)=>
+    (await sql.query('SELECT id FROM platform.projects WHERE workspace_id=$1 AND id=$2',[f.scope.workspace,f.scope.project])).rows,'view');
+  assert.equal(result.length,1);
+  await assert.rejects(f.metadata.transaction(async()=>true),/permission denied: configure/);
+  await assert.rejects(f.metadata.transaction(async()=>true,'execute'),/permission denied: execute/);
+  await f.db.query("INSERT INTO platform.grants(workspace_id,project_id,principal_id,permission) VALUES($1,$2,$3,'execute')",[f.scope.workspace,f.scope.project,f.scope.principal]);
+  assert.equal(await f.metadata.transaction(async()=>true,'execute'),true);
+  await assert.rejects(f.metadata.transaction(async metadata=>metadata.run(randomUUID(),{mode:'batch',configuration:h}),'view'),/unknown|published/);
+});
+
+test('Unix PostgreSQL bindings are explicit canonical local directories',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'postgres-socket-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const canonical=await import('node:fs/promises').then(fs=>fs.realpath(root));
+  const db=Postgres.socket({path:canonical,database:'pipeline',user:'operator'});await db.close();
+  const alias=join(root,'alias');await symlink(root,alias);
+  assert.throws(()=>Postgres.socket({path:alias,database:'pipeline',user:'operator'}),/canonical|alias/);
+  assert.throws(()=>Postgres.socket({path:'../socket',database:'pipeline',user:'operator'}),/absolute/);
+  assert.throws(()=>Postgres.socket({path:canonical,database:'bad\nname',user:'operator'}),/database|identity/);
 });

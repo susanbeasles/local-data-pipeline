@@ -26,6 +26,16 @@ const shape = {
   additionalProperties: false,
 };
 
+test('an explicitly keyed dataset operation recovers one run and refuses changed rules',async t=>{
+ const data=new Dataset(await fixture(t));t.after(()=>data.close());
+ const revision=await data.capture('Input',[item('one',{text:'hello'})]),id='12345678-1234-4123-8123-123456789abc';
+ const rules:Step[]=[{op:'set',path:'$.reviewed',value:true}];
+ const first=data.start(revision.id,rules,{id}),again=data.start(revision.id,rules,{id});assert.equal(first.id,again.id);
+ await data.execute(first.id);assert.equal(data.start(revision.id,rules,{id}).state,'completed');
+ assert.throws(()=>data.start(revision.id,[],{id}),/different|identity|parameters/);
+ assert.equal(data.runs().length,1);
+});
+
 test('audit review pages failures and outcomes without loading the entire run',async t=>{
  const data=new Dataset(await fixture(t));t.after(()=>data.close());
  const revision=await data.capture('Audit',Array.from({length:7},(_,i)=>item(String(i),{value:i})));

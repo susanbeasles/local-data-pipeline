@@ -271,7 +271,7 @@ export function fixture() {
   );
   return {
     registry,
-    definition,
+    definition: clone(definition),
     policy,
     json,
     source,
@@ -861,6 +861,22 @@ test("cooperative deadlines return a failed trace without accepting late adapter
   assert.equal(Object.hasOwn(run.outputs, "read-1"), false);
 });
 
+test("usage charges cannot overflow integer accounting and erase the failed trace", async () => {
+  const fixture = traceFixture([{ ...small, tokens: Number.MAX_SAFE_INTEGER }], ({ charge }) => {
+    charge({ tokens: Number.MAX_SAFE_INTEGER });
+    charge({ tokens: 1 });
+    return { text: ["unreachable"] };
+  });
+  fixture.definition.budget.tokens = Number.MAX_SAFE_INTEGER;
+  fixture.policy.budget.tokens = Number.MAX_SAFE_INTEGER;
+  const run = await Workflow.publish(fixture.definition, fixture.registry, fixture.policy).run(
+    fixture.registry,
+  );
+  assert.equal(run.state, "failed");
+  assert.match(run.steps[0].error!, /charge|overflow|budget/i);
+  assert.equal(run.steps[0].usage.tokens, Number.MAX_SAFE_INTEGER);
+});
+
 test("output storage allocation is checked before an oversized artifact can reach publication", async () => {
   const { registry, definition } = fixture();
   definition.steps[0].budget.storageBytes = 1;
@@ -915,14 +931,202 @@ test("retained packet allocations count toward the complete workflow memory budg
 
 test("local trace bounds reject an oversized retained plan before any adapter can perform work", async () => {
   const registry = new Registry();
-  const contract = registry.registerContract({ id: "text", version: 1, scope, kind: "text", format: "text", schema: { type: "string" } });
+  const contract = registry.registerContract({
+    id: "text",
+    version: 1,
+    scope,
+    kind: "text",
+    format: "text",
+    schema: { type: "string" },
+  });
   let calls = 0;
-  const executor = registry.registerAdapter({ id: "large", version: 1, scope, artifact: hash("large synthetic fixture"), capabilities: [] }, () => { calls++; return { text: ["x".repeat(9 * 1024 ** 2)] }; });
-  const type = registry.registerType({ id: "large", version: 1, scope, category: "custom", config: empty, adapter: executor, capabilities: [], ports: { inputs: {}, outputs: { text: port(contract) } }, bindings: {} });
-  const allocation: Budget = { ...small, memoryBytes: 12 * 1024 ** 2, storageBytes: 10 * 1024 ** 2 };
+  const executor = registry.registerAdapter(
+    { id: "large", version: 1, scope, artifact: hash("large synthetic fixture"), capabilities: [] },
+    () => {
+      calls++;
+      return { text: ["x".repeat(9 * 1024 ** 2)] };
+    },
+  );
+  const type = registry.registerType({
+    id: "large",
+    version: 1,
+    scope,
+    category: "custom",
+    config: empty,
+    adapter: executor,
+    capabilities: [],
+    ports: { inputs: {}, outputs: { text: port(contract) } },
+    bindings: {},
+  });
+  const allocation: Budget = {
+    ...small,
+    memoryBytes: 12 * 1024 ** 2,
+    storageBytes: 10 * 1024 ** 2,
+  };
   const total: Budget = { ...large, memoryBytes: 32 * 1024 ** 2, storageBytes: 32 * 1024 ** 2 };
-  const definition: Definition = { format: "workflow/1", id: "large", version: 1, scope, name: "Large fixture", budget: total, stages: [{ id: "main", name: "Main", budget: total }], steps: ["a", "b"].map((id) => ({ id, stage: "main", type, config: {}, pins: {}, budget: allocation })), edges: [] };
+  const definition: Definition = {
+    format: "workflow/1",
+    id: "large",
+    version: 1,
+    scope,
+    name: "Large fixture",
+    budget: total,
+    stages: [{ id: "main", name: "Main", budget: total }],
+    steps: ["a", "b"].map((id) => ({
+      id,
+      stage: "main",
+      type,
+      config: {},
+      pins: {},
+      budget: allocation,
+    })),
+    edges: [],
+  };
   const workflow = Workflow.publish(definition, registry, { ...policy, budget: total });
   await assert.rejects(workflow.run(registry), /trace|artifact handles/i);
   assert.equal(calls, 0);
+});
+
+function traceFixture(allocations: Budget[], handler: Handler) {
+  const registry = new Registry();
+  const contract = registry.registerContract({
+    id: "text",
+    version: 1,
+    scope,
+    kind: "text",
+    format: "text",
+    schema: { type: "string" },
+  });
+  const adapter = registry.registerAdapter(
+    {
+      id: "trace",
+      version: 1,
+      scope,
+      artifact: hash("trace synthetic fixture"),
+      capabilities: [],
+    },
+    handler,
+  );
+  const type = registry.registerType({
+    id: "trace",
+    version: 1,
+    scope,
+    category: "custom",
+    config: empty,
+    adapter,
+    capabilities: [],
+    bindings: {},
+    ports: {
+      inputs: { text: port(contract, "many", false) },
+      outputs: { text: port(contract) },
+    },
+  });
+  const total = { ...large, memoryBytes: 64 * 1024 ** 2, storageBytes: 64 * 1024 ** 2 };
+  const definition: Definition = {
+    format: "workflow/1",
+    id: "trace",
+    version: 1,
+    scope,
+    name: "Trace fixture",
+    budget: total,
+    stages: [{ id: "main", name: "Main", budget: total }],
+    steps: allocations.map((budget, index) => ({
+      id: "step-" + index,
+      stage: "main",
+      type,
+      config: {},
+      pins: {},
+      budget,
+    })),
+    edges: [],
+  };
+  return { registry, definition, policy: { ...policy, budget: total } };
+}
+
+test("trace preflight reserves repeated input packets for every downstream attempt", async () => {
+  let calls = 0;
+  const allocation = { ...small, memoryBytes: 5 * 1024 ** 2, storageBytes: 4 * 1024 ** 2 };
+  const fixture = traceFixture(
+    Array.from({ length: 5 }, () => allocation),
+    () => {
+      calls++;
+      return { text: ["small actual output"] };
+    },
+  );
+  fixture.definition.edges = [1, 2, 3, 4].map((index) => ({
+    id: "route-" + index,
+    from: { step: "step-0", port: "text" },
+    to: { step: "step-" + index, port: "text" },
+  }));
+  for (const step of fixture.definition.steps.slice(1))
+    step.budget = { ...allocation, storageBytes: 64 };
+  const workflow = Workflow.publish(fixture.definition, fixture.registry, fixture.policy);
+  await assert.rejects(workflow.run(fixture.registry), /trace.*artifact handles/i);
+  assert.equal(calls, 0);
+});
+
+test("trace preflight reserves a rejected payload after earlier accepted outputs", async () => {
+  let calls = 0;
+  const fixture = traceFixture(
+    [
+      { ...small, memoryBytes: 9 * 1024 ** 2, storageBytes: 8 * 1024 ** 2 },
+      { ...small, memoryBytes: 9 * 1024 ** 2, storageBytes: 64 },
+    ],
+    () => {
+      calls++;
+      return { text: ["small actual output"] };
+    },
+  );
+  const workflow = Workflow.publish(fixture.definition, fixture.registry, fixture.policy);
+  await assert.rejects(workflow.run(fixture.registry), /trace.*artifact handles/i);
+  assert.equal(calls, 0);
+});
+
+test("trace reservations use output bounds without charging unused memory headroom twice", async () => {
+  const allocation = { ...small, memoryBytes: 9 * 1024 ** 2, storageBytes: 64 };
+  const fixture = traceFixture([allocation, allocation], () => ({ text: ["small"] }));
+  const run = await Workflow.publish(fixture.definition, fixture.registry, fixture.policy).run(
+    fixture.registry,
+  );
+  assert.equal(run.state, "completed");
+  assert.equal(run.steps.length, 2);
+});
+
+test("adapter error diagnostics stay bounded without discarding the failed attempt", async () => {
+  const fixture = traceFixture([small], () => {
+    throw Error("synthetic failure " + "x".repeat(17 * 1024 ** 2));
+  });
+  const run = await Workflow.publish(fixture.definition, fixture.registry, fixture.policy).run(
+    fixture.registry,
+  );
+  assert.equal(run.state, "failed");
+  assert.equal(run.steps.length, 1);
+  assert.match(run.steps[0].error!, /^synthetic failure /);
+  assert.ok(Buffer.byteLength(JSON.stringify(run.steps[0].error)) <= 4096);
+});
+
+test("storage budgets measure the normalized output including omitted optional ports", async () => {
+  const { registry, definition, source, adapter } = fixture();
+  const executor = adapter("fixture-omitted-port", ["data.read"], () => ({}));
+  const original = registry.type(source);
+  const type = registry.registerType({
+    ...original,
+    id: "optional-source",
+    adapter: executor,
+    ports: {
+      inputs: {},
+      outputs: Object.fromEntries(
+        Object.entries(original.ports.outputs).map(([key, value]) => [
+          key,
+          { ...value, required: false },
+        ]),
+      ),
+    },
+  });
+  definition.steps[0].type = type;
+  definition.steps[0].budget.storageBytes = 2;
+  const run = await Workflow.publish(definition, registry, policy).run(registry);
+  assert.equal(run.state, "failed");
+  assert.match(run.steps[0].error!, /storageBytes.*budget|budget.*storageBytes/i);
+  assert.equal(Object.hasOwn(run.outputs, "read-1"), false);
 });

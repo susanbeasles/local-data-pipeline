@@ -2,10 +2,10 @@ import { Pool } from "pg";
 import { Workflow } from "./workflow.ts";
 import { schema, accepts } from "./profile.ts";
 import { createHash, randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { realpathSync,statSync } from "node:fs";
 import { open, lstat, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { resolve, sep } from "node:path";
+import { resolve, sep, isAbsolute } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 export type Row = { [key: string]: unknown };
@@ -160,6 +160,13 @@ export class Postgres implements Database {
   private constructor(pool: Pool) {
     this.pool = pool;
   }
+  static socket(binding:{path:string;database:string;user:string}):Postgres {
+    if(!isAbsolute(binding.path))throw Error('PostgreSQL socket path must be absolute');
+    const path=realpathSync(binding.path),stat=statSync(path);
+    if(path!==resolve(binding.path)||!stat.isDirectory()||(stat.mode&0o022)!==0)throw Error('PostgreSQL socket directory must be canonical and private');
+    if(!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(binding.database)||!/^[_A-Za-z][_A-Za-z0-9-]{0,62}$/.test(binding.user))throw Error('invalid PostgreSQL database or user identity');
+    return new Postgres(new Pool({host:path,port:5432,database:binding.database,user:binding.user,max:8,connectionTimeoutMillis:5000,idleTimeoutMillis:30000,ssl:false}));
+  }
   static local(connection: string): Postgres {
     const url = new URL(connection);
     if (
@@ -279,8 +286,8 @@ export class Metadata {
     });
   }
   /** Trusted server composition; all nested Metadata methods reuse this transaction. */
-  async transaction<T>(fn: (metadata: Metadata, sql: Sql) => Promise<T>): Promise<T> {
-    return this.change("configure", async (sql) => {
+  async transaction<T>(fn: (metadata: Metadata, sql: Sql) => Promise<T>,permission:Permission='configure'): Promise<T> {
+    return this.change(permission, async (sql) => {
       const bound: Database = {
         query: sql.query.bind(sql),
         transaction: (operation) => operation(sql),

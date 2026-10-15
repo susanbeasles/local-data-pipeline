@@ -103,7 +103,7 @@ export type Outcome = {
   step?: number;
   reason?: string;
 };
-export type Options = { pauseOnFailure?: boolean };
+export type Options = { pauseOnFailure?: boolean; id?:string };
 export type Capture = { id: string };
 export type Integrity = { records: number; bytes: number; hash: string; intact: true };
 type Row = { [key: string]: unknown };
@@ -876,13 +876,19 @@ export class Dataset {
     const revision = this.revision(parent),
       validated = validateSteps(plan),
       body = json(validated),
-      id = randomUUID();
+      id = options.id??randomUUID();
+    if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))throw Error('dataset run identity must be a UUID');
     if (options.pauseOnFailure !== undefined && typeof options.pauseOnFailure !== "boolean")
       throw Error("invalid pauseOnFailure");
-    this.db
-      .prepare("INSERT INTO runs VALUES(?,?,NULL,'running',?,?,?,0,?,NULL)")
-      .run(id, parent, body, hash(body), options.pauseOnFailure === false ? 0 : 1, revision.count);
-    return this.readRun(id);
+    return this.transaction(()=>{
+      const prior=this.db.prepare('SELECT * FROM runs WHERE id=?').get(id);
+      if(prior){
+        if(prior.parent!==parent||prior.steps!==body||prior.pause!==(options.pauseOnFailure===false?0:1))throw Error('dataset run identity has different parameters');
+        return this.readRun(id);
+      }
+      this.db.prepare("INSERT INTO runs VALUES(?,?,NULL,'running',?,?,?,0,?,NULL)").run(id,parent,body,hash(body),options.pauseOnFailure===false?0:1,revision.count);
+      return this.readRun(id);
+    });
   }
   private runRow(id: string): Row {
     const row = this.db.prepare("SELECT * FROM runs WHERE id=?").get(id);
