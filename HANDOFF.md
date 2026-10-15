@@ -4,7 +4,7 @@ This checkpoint publishes the previously local platform implementation for revie
 
 Current independently verified blocker: `npm run check` fails in `pipeline/platform-worker.ts` because `sandbox.launch` accepts four or five arguments while the new worker supplies a sixth socket-access argument. The required exact Unix-socket policy is not implemented. The new platform code has not passed a fresh complete acceptance run. VM/backend qualification, native JSON workflow controls and the deployment bundle-to-resource map remain incomplete. No production workload or resource apply is performed by this checkpoint.
 
-The checkout also contains commit `18d60be`; the published `work/review-console` branch advanced independently to `fdf9853`. This checkpoint is published on `work/platform-checkpoint` so both histories are preserved pending reconciliation, without overwriting the validated remote branch. Local infrastructure source is in the companion `susanbeasles/infra` branch `work/local-pipeline-resources`; qualification receipts deliberately do not claim a verified VM/inference backend.
+The checkout also contains commit `18d60be`; the published `work/review-console` branch advanced independently to `fdf9853`. The histories are now reconciled on `work/platform-checkpoint` without overwriting either implementation. Both trace-guard regression suites are retained; all 37 affected workflow/budget tests pass. The new platform worker socket-access typecheck blocker remains separate and unresolved. Local infrastructure source is in the companion `susanbeasles/infra` branch `work/local-pipeline-resources`; qualification receipts deliberately do not claim a verified VM/inference backend.
 
 ---
 
@@ -16,7 +16,17 @@ This commit is an engineering checkpoint, **not a declaration that the complete 
 
 No production enrichment was launched for this workspace implementation. Existing collectors and the pinned processing instance were not restarted or migrated. Their current status and collection completeness are not established by this handoff.
 
-## Verification at handoff
+## Continuation checkpoint - 2026-10-15
+
+The cumulative local trace guard is repaired. Admission reserves all retained packet allocations and trace metadata before adapter execution. Failure bodies share the step allocation with retained inputs, error messages are bounded, and input accounting includes JSON envelopes and separators. The original regression and five added workflow boundary/failure tests pass.
+
+The descriptor supervisor now establishes its required macOS footprint observer before starting workers or the application. A synthetic observer-load failure regression confirms that neither child starts when that prerequisite fails. This does not establish the cause of the previously intermittent macOS extractor failure.
+
+Verification used the latest registry-listed Node 24 release, **24.22.0**, installed separately from the host runtime. Type checking passes. The complete Linux suite finishes with **209 passed, 62 failed, 1 skipped, 272 total**. All **27 workflow tests**, **11 PostgreSQL metadata tests**, and the observer preflight regression pass. The remaining failures include missing macOS isolation/model facilities and unavailable process identity observation; this is not a passing macOS acceptance run. See [the exact verification report and failure inventory](docs/verification-2026-10-15.md).
+
+Native compilation/GUI acceptance, installed MLX execution and the intermittent extractor failure still require the operator's macOS environment and local assets. The complete broader platform acceptance specification is not present in this checkout; the workflow/metadata integration and platform capabilities listed below remain unfinished.
+
+## Original verification at handoff
 
 - `npm run check`: passed.
 - Final merged `npm test` with the existing local synthetic-test model/runtime bindings: **265 passed, 1 failed, 266 total**. The remote generation-scoped sampling and paused-worker verification fixes were merged without force-pushing; sampling retains the newer SQLite-only receipt/identity checks.
@@ -87,7 +97,7 @@ These are **not yet a fully integrated replacement platform**:
 
 ## Next actions
 
-1. Repair the cumulative trace guard and investigate the intermittent extractor failure. Run the complete suite with valid **local synthetic** model/runtime assets.
+1. The cumulative trace guard is repaired and covered by additional regression tests. Investigate the intermittent extractor failure and rerun the complete suite on macOS with valid **local synthetic** model/runtime assets.
 2. Review and finish the new native views, test provider startup using an explicitly approved bounded request, build a frozen control release and perform a local GUI acceptance pass.
 3. Join the validated graph compiler, normalized metadata service and durable execution path. Add end-to-end PostgreSQL + real artifact + worker-interruption tests before exposing production graph controls.
 4. Implement remaining platform capabilities against the supplied completion criteria, failing explicitly on unsupported modes. Keep raw observations, model assertions, accepted facts, lineage and execution dependencies distinct.

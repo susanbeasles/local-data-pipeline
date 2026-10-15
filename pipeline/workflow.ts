@@ -779,8 +779,9 @@ function checkPackets(
 function diagnostic(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback;
   // A UTF-16 code unit occupies at most six bytes after JSON escaping.
-  const limit = Math.floor((errorBytes - 5) / 6);
-  return message.length > limit ? message.slice(0, limit) + "…" : message;
+  const suffix = "... [truncated]";
+  const limit = Math.floor((errorBytes - 2 - suffix.length) / 6);
+  return message.length > limit ? message.slice(0, limit) + suffix : message;
 }
 
 function reserveTrace(plan: Frozen<Plan>, workflow: Ref, scope: Frozen<Scope>): void {
@@ -834,10 +835,11 @@ function reserveTrace(plan: Frozen<Plan>, workflow: Ref, scope: Frozen<Scope>): 
     const inputs = Object.values(step.inputs)
       .flat()
       .reduce((bytes, endpoint) => bytes + outputs.get(endpoint.step)!, 0);
-    retained += Math.min(inputs, step.budget.memoryBytes);
+    const incoming = Math.min(inputs, step.budget.memoryBytes);
+    // Rejected output shares this attempt's allocation with its retained input.
     const rejected = Math.min(step.budget.memoryBytes, jsonBytes);
     if (metadata + retained + rejected + errorBytes > jsonBytes) throw Error(message);
-    retained += outputs.get(step.id)!;
+    retained += incoming + Math.min(outputs.get(step.id)!, step.budget.memoryBytes - incoming);
     if (metadata + retained + errorBytes > jsonBytes) throw Error(message);
   }
 }
@@ -926,15 +928,17 @@ export class Workflow {
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });
       try {
-        let inputBytes = 0,
+        let inputBytes = Buffer.byteLength(
+            json(Object.fromEntries(Object.keys(step.inputs).map((key) => [key, []]))),
+          ),
           packets = 0;
         for (const [key, endpoints] of Object.entries(step.inputs)) {
           inputs[key] = [];
           for (const endpoint of endpoints)
             for (const packet of run.outputs[endpoint.step][endpoint.port]) {
-              inputBytes += Buffer.byteLength(
-                json(packet, Math.min(step.budget.memoryBytes, jsonBytes)),
-              );
+              inputBytes +=
+                (inputs[key].length ? 1 : 0) +
+                Buffer.byteLength(json(packet, Math.min(step.budget.memoryBytes, 16 * 1024 ** 2)));
               if (++packets > 65536 || inputBytes > step.budget.memoryBytes)
                 throw Error("Step input packet or memory budget exceeded");
               inputs[key].push(packet);
@@ -1013,7 +1017,8 @@ export class Workflow {
         run.state = "failed";
         if (output !== undefined) {
           try {
-            const serialized = json(output, Math.min(step.budget.memoryBytes, jsonBytes));
+            const remaining = step.budget.memoryBytes - Buffer.byteLength(json(inputs));
+            const serialized = json(output, Math.max(0, Math.min(remaining, jsonBytes)));
             attempt.rejected = JSON.parse(serialized) as Json;
           } catch {
             /* Oversized/non-JSON outputs remain an explicit diagnostic, not accepted data. */

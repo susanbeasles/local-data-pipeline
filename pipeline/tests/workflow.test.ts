@@ -1130,3 +1130,163 @@ test("storage budgets measure the normalized output including omitted optional p
   assert.match(run.steps[0].error!, /storageBytes.*budget|budget.*storageBytes/i);
   assert.equal(Object.hasOwn(run.outputs, "read-1"), false);
 });
+
+function retainedFixture(
+  allocations: number[],
+  handlers: Handler[],
+  linked = false,
+  cardinality: Port["cardinality"] = "one",
+) {
+  const registry = new Registry();
+  const contract = registry.registerContract({
+    id: "text",
+    version: 1,
+    scope,
+    kind: "text",
+    format: "text",
+    schema: { type: "string" },
+  });
+  const total: Budget = { ...large, memoryBytes: 32 * 1024 ** 2, storageBytes: 32 * 1024 ** 2 };
+  const definition: Definition = {
+    format: "workflow/1",
+    id: "trace-fixture",
+    version: 1,
+    scope,
+    name: "Trace fixture",
+    budget: total,
+    stages: [{ id: "main", name: "Main", budget: total }],
+    steps: [],
+    edges: [],
+  };
+  for (const [index, allocation] of allocations.entries()) {
+    const id = "step-" + index;
+    const adapter = registry.registerAdapter(
+      {
+        id,
+        version: 1,
+        scope,
+        artifact: hash(id),
+        capabilities: [],
+      },
+      handlers[index],
+    );
+    const type = registry.registerType({
+      id,
+      version: 1,
+      scope,
+      category: "custom",
+      config: empty,
+      adapter,
+      capabilities: [],
+      ports: {
+        inputs: linked && index ? { text: port(contract, cardinality) } : {},
+        outputs: { text: port(contract, cardinality) },
+      },
+      bindings: {},
+    });
+    definition.steps.push({
+      id,
+      stage: "main",
+      type,
+      config: {},
+      pins: {},
+      budget: {
+        ...small,
+        cpuMs: 5000,
+        timeMs: 5000,
+        memoryBytes: allocation * 1024 ** 2,
+        storageBytes: allocation * 1024 ** 2,
+      },
+    });
+    if (linked && index)
+      definition.edges.push({
+        id: "edge-" + index,
+        from: { step: "step-" + (index - 1), port: "text" },
+        to: { step: id, port: "text" },
+      });
+  }
+  return {
+    registry,
+    workflow: Workflow.publish(definition, registry, { ...policy, budget: total }),
+  };
+}
+
+test("failed output diagnostics share the step allocation with retained inputs", async () => {
+  const { registry, workflow } = retainedFixture(
+    [5, 10],
+    [() => ({ text: ["x".repeat(4 * 1024 ** 2)] }), () => ({ text: ["y".repeat(9 * 1024 ** 2)] })],
+    true,
+  );
+  const run = await workflow.run(registry);
+  assert.equal(run.state, "failed");
+  assert.equal(run.steps.length, 2);
+  assert.match(run.steps[1].error!, /budget.*memoryBytes|memoryBytes.*budget/i);
+  assert.equal(run.steps[1].inputs.text[0], run.outputs["step-0"].text[0]);
+  assert.equal(run.steps[1].rejected, undefined);
+  assert.equal(Object.hasOwn(run.outputs, "step-1"), false);
+});
+
+test("oversized adapter errors retain a bounded explicit diagnostic", async () => {
+  const { registry, workflow } = retainedFixture(
+    [1],
+    [
+      () => {
+        throw Error("\0".repeat(3 * 1024 ** 2));
+      },
+    ],
+  );
+  const run = await workflow.run(registry);
+  assert.equal(run.state, "failed");
+  assert.equal(run.steps.length, 1);
+  assert.match(run.steps[0].error!, /truncated/);
+  assert.ok(Buffer.byteLength(JSON.stringify(run)) < 16 * 1024 ** 2);
+});
+
+test("trace preflight reserves metadata in addition to packet allocations", async () => {
+  let calls = 0;
+  const { registry, workflow } = retainedFixture(
+    [16],
+    [
+      () => {
+        calls++;
+        return { text: ["small"] };
+      },
+    ],
+  );
+  await assert.rejects(workflow.run(registry), /trace|artifact handles/i);
+  assert.equal(calls, 0);
+});
+
+test("one large valid output remains within the local trace allocation", async () => {
+  const { registry, workflow } = retainedFixture(
+    [12],
+    [() => ({ text: ["x".repeat(9 * 1024 ** 2)] })],
+  );
+  const run = await workflow.run(registry);
+  assert.equal(run.state, "completed");
+  assert.equal((run.outputs["step-0"].text[0] as string).length, 9 * 1024 ** 2);
+});
+
+test("failed input assembly counts packet separators before retaining each packet", async () => {
+  const inputBudget = 127 * 65536;
+  let calls = 0;
+  const { registry, workflow } = retainedFixture(
+    [8 + 1000 / 1024 ** 2, inputBudget / 1024 ** 2],
+    [
+      () => ({ text: Array.from({ length: 65536 }, () => "x".repeat(125)) }),
+      () => {
+        calls++;
+        return { text: ["unused"] };
+      },
+    ],
+    true,
+    "many",
+  );
+  const run = await workflow.run(registry);
+  assert.equal(run.state, "failed");
+  assert.equal(run.steps.length, 2);
+  assert.match(run.steps[1].error!, /input.*memory budget/i);
+  assert.equal(calls, 0);
+  assert.ok(Buffer.byteLength(JSON.stringify(run.steps[1].inputs)) <= inputBudget);
+  assert.ok(Buffer.byteLength(JSON.stringify(run)) <= 16 * 1024 ** 2);
+});

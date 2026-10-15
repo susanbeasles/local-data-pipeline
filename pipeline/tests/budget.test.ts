@@ -1,9 +1,61 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+test("an unavailable footprint observer cannot start resident workers or the application", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "observer-preflight-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const script = join(root, "child.py"),
+    config = join(root, "launcher.json");
+  await writeFile(
+    script,
+    "import sys,time\nfrom pathlib import Path\nPath(sys.argv[1]).write_text('started')\ntime.sleep(.1)\n",
+  );
+  await writeFile(
+    config,
+    JSON.stringify({
+      count: 1,
+      work: root,
+      workerCwd: root,
+      env: { PATH: "/usr/bin:/bin" },
+      workerEnv: { PATH: "/usr/bin:/bin" },
+      worker: ["/usr/bin/python3", script, join(root, "worker-started")],
+      application: [
+        "/usr/bin/python3",
+        script,
+        join(root, "application-started"),
+      ],
+    }),
+  );
+  const child = spawn("/usr/bin/python3", [
+    "-c",
+    [
+      "import ctypes,runpy,sys",
+      "def unavailable(*args, **kwargs): raise OSError('footprint observer unavailable')",
+      "ctypes.CDLL = unavailable",
+      "sys.argv = sys.argv[1:]",
+      "runpy.run_path(sys.argv[0], run_name='__main__')",
+    ].join("\n"),
+    join(import.meta.dirname, "../launch.py"),
+    config,
+  ]);
+  child.stdout.resume();
+  let stderr = "";
+  child.stderr.on("data", (bytes) => (stderr += bytes));
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    // Wait for inherited pipes too, so a wrongly spawned child has time to write its marker.
+    child.once("close", resolve);
+  });
+  assert.notEqual(code, 0);
+  assert.match(stderr, /footprint observer unavailable/);
+  assert.deepEqual(
+    (await readdir(root)).filter((name) => name.endsWith("-started")),
+    [],
+  );
+});
 async function fixture(budget: number) {
   const root = await mkdtemp(join(tmpdir(), "budget-"));
   await mkdir(join(root, "state"));

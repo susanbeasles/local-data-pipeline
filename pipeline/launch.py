@@ -2,6 +2,10 @@
 import sys,json,os,subprocess,signal,time,threading,ctypes,re
 from pathlib import Path
 config=json.loads(Path(sys.argv[1]).read_text())
+# Establish the required footprint observer before starting any child process.
+# A missing/incompatible library must not leave unsupervised workers behind.
+lib=ctypes.CDLL('/usr/lib/libproc.dylib')
+lib.proc_pid_rusage.argtypes=[ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
 workers=[];fds=[];passed=[];env=dict(config['env'])
 app=None
 try:
@@ -19,8 +23,6 @@ except BaseException:
     raise
 finally:
     for fd in fds:os.close(fd)
-lib=ctypes.CDLL('/usr/lib/libproc.dylib')
-lib.proc_pid_rusage.argtypes=[ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
 def memory(pid):
     data=ctypes.create_string_buffer(1024)
     if lib.proc_pid_rusage(pid,2,data):return None
