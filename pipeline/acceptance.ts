@@ -10,7 +10,7 @@ export function acceptance(entities: Entity[], groups: Group[], edges: Edge[]): 
   if (entities.flatMap(e => e.claims).some(c => c.object === "fact")) errors.push("schema placeholder copied into claim");
   if (!entities.some(e => e.name === "Alpha" && e.claims.some(c => /stor/i.test(c.predicate + " " + c.object) && /local/i.test(c.predicate + " " + c.object)))) errors.push("missing local storage fact");
   if (!entities.some(e => e.name === "Beta" && e.claims.some(c => /read/i.test(c.predicate + " " + c.object) && /Alpha/.test(names.get(c.object) ?? c.object)))) errors.push("missing reader fact");
-  for (const name of ["Alpha", "Beta"]) if (!entities.some(e => e.name === name && e.claims.some(c => /network/i.test(c.predicate + " " + c.object) && /disabled|denied|no access/i.test(c.predicate + " " + c.object)))) errors.push("missing network denial for " + name);
+  for (const name of ["Alpha", "Beta"]) if (!entities.some(e => e.name === name && e.claims.some(c => /network/i.test(c.predicate + " " + c.object) && /disabled|denied|no access|does not allow network access/i.test(c.predicate + " " + c.object)))) errors.push("missing network denial for " + name);
   if (groups.some(g => new Set(g.memberIds.map(id => names.get(id))).size > 1)) errors.push("different components grouped as aliases");
   if (!edges.some(e => names.get(e.from) === "Beta" && names.get(e.to) === "Alpha" && e.relation === "depends-on")) errors.push("missing reader dependency");
   if (edges.some(e => names.get(e.from) !== "Beta" || names.get(e.to) !== "Alpha" || e.relation !== "depends-on")) errors.push("unsupported relationship or direction");
