@@ -137,19 +137,35 @@ export async function sample(config: Panel, role: string, offset = 0) {
     throw Error("invalid stage/sample offset");
   const c = await current(config),
     work = await realpath(c.pipeline.work);
+  const graph = ["reconcile", "connect"].includes(role);
+  let generation: string | undefined;
+  if (graph) {
+    const phase = await readFile(join(work, "state", "phase.json"), "utf8")
+      .then(JSON.parse)
+      .catch(() => undefined);
+    if (
+      typeof phase?.generation !== "string" ||
+      !/^[a-f0-9]{64}$/.test(phase.generation)
+    )
+      return {
+        available: false,
+        reason: "Active graph generation is unavailable",
+      };
+    generation = phase.generation;
+  }
   const database = join(
     work,
     "state",
-    ["reconcile", "connect"].includes(role) ? "graph.sqlite" : "pipeline.sqlite",
+    graph ? "graph.sqlite" : "pipeline.sqlite",
   );
   const db = new DatabaseSync(database, { readOnly: true });
   try {
     db.exec("PRAGMA busy_timeout=1000");
     const row = db
       .prepare(
-        "SELECT id,outputHash FROM jobs WHERE role=? AND state='completed' ORDER BY rowid LIMIT 1 OFFSET ?",
+        `SELECT id,outputHash FROM jobs WHERE role=? AND state='completed' ${graph ? "AND config=?" : ""} ORDER BY rowid LIMIT 1 OFFSET ?`,
       )
-      .get(role, offset);
+      .get(...(generation ? [role, generation, offset] : [role, offset]));
     if (!row) return { available: false, reason: "No completed output for this stage yet" };
     return {
       available: true,
@@ -160,6 +176,7 @@ export async function sample(config: Panel, role: string, offset = 0) {
     db.close();
   }
 }
+
 type ProcessInfo = Awaited<ReturnType<typeof processes>>[number];
 type Owner = { pid: number; birth: string; command: string; group: number; members: ProcessInfo[] };
 async function register(config: Panel, pid: number) {

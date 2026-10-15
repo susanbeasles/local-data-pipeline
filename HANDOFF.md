@@ -9,17 +9,18 @@ No production enrichment was launched for this workspace implementation. Existin
 ## Verification at handoff
 
 - `npm run check`: passed.
-- Full `npm test` with the existing local synthetic-test model/runtime bindings: **263 passed, 2 failed, 265 total**.
-- Native Swift compilation was successful during development, but the **fresh handoff compilation failed**: the default compiler reported malformed SwiftUI plugin responses; the explicit Command Line Tools compiler outside the command sandbox reported `unable to load standard library for target arm64-apple-macosx14.0`. Resolve the current SDK/toolchain selection and rerun the build. No updated application deployment is claimed.
+- Final merged `npm test` with the existing local synthetic-test model/runtime bindings: **265 passed, 1 failed, 266 total**. The remote generation-scoped sampling and paused-worker verification fixes were merged without force-pushing; sampling retains the newer SQLite-only receipt/identity checks.
+- Native Swift compilation was successful during development, but the **fresh handoff compilation failed**. The final check with an explicitly selected Command Line Tools SDK reports a missing `SwiftUIMacros.StateMacro` plugin. Earlier checks also reported malformed plugin responses or inability to load the standard library. Resolve SDK/compiler/plugin compatibility and rerun the build. No updated application deployment is claimed.
 - No authenticated Codex/Claude inference requests were made during engineering validation. Local help probes identified Codex capabilities; Claude was absent at the configured local path.
 - PostgreSQL tests execute actual PostgreSQL through PGlite. They are not proof of a separate-server deployment, multi-host concurrency or production load.
 
-Known full-suite failures:
+Known remaining full-suite failure:
 
-1. `pipeline/tests/extractor.test.ts` — **sealed extractor executes only under OS restrictions and participates in resume**: subprocess exit status was 1 instead of 0. Diagnose the synthetic subprocess and current local runtime/toolchain; do not disable the sandbox or verification guards.
-2. `pipeline/tests/workflow.test.ts` — **local trace bounds reject an oversized retained plan before any adapter can perform work**: the expected preflight rejection is missing. Implement the cumulative trace allocation guard before adapters run; preserve the regression test. Prefer immutable artifact handles for large datasets.
+1. `pipeline/tests/workflow.test.ts` — **local trace bounds reject an oversized retained plan before any adapter can perform work**: the expected preflight rejection is missing. Implement the cumulative trace allocation guard before adapters run; preserve the regression test. Prefer immutable artifact handles for large datasets.
 
-Local verification logs are `/private/tmp/handoff-check.log`, `/private/tmp/handoff-tests.log` and `/private/tmp/handoff-swift.log`; these are not committed and may expire. Re-run checks rather than trusting old logs.
+An earlier full run also failed `pipeline/tests/extractor.test.ts` — **sealed extractor executes only under OS restrictions and participates in resume**, with subprocess exit status 1 instead of 0. It passed both subsequent full runs; investigate this intermittent runtime/sandbox failure rather than removing guards.
+
+Local verification logs are `/private/tmp/handoff-merge-check.log`, `/private/tmp/handoff-final-tests.log`, `/private/tmp/handoff-swift.log` and `/private/tmp/handoff-swift-final.log`; these are not committed and may expire. Re-run checks rather than trusting old logs.
 
 ## Code map
 
@@ -76,7 +77,7 @@ These are **not yet a fully integrated replacement platform**:
 
 ## Next actions
 
-1. Reproduce and repair the two named test failures. Run the complete suite with valid **local synthetic** model/runtime assets.
+1. Repair the cumulative trace guard and investigate the intermittent extractor failure. Run the complete suite with valid **local synthetic** model/runtime assets.
 2. Review and finish the new native views, test provider startup using an explicitly approved bounded request, build a frozen control release and perform a local GUI acceptance pass.
 3. Join the validated graph compiler, normalized metadata service and durable execution path. Add end-to-end PostgreSQL + real artifact + worker-interruption tests before exposing production graph controls.
 4. Implement remaining platform capabilities against the supplied completion criteria, failing explicitly on unsupported modes. Keep raw observations, model assertions, accepted facts, lineage and execution dependencies distinct.
