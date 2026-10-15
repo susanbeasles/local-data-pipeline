@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile, readFile, realpath, readdir } from "node:fs/promises";
+import { mkdir, writeFile, readFile, realpath, cp } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -21,17 +21,12 @@ if (studioConfig) {
 }
 await mkdir(join(app, "Contents/MacOS"), { recursive: true });
 await mkdir(join(app, "Contents/Resources"), { recursive: true });
-const cache=join(root,'dist/SwiftCache');
-await mkdir(cache,{recursive:true});
-await promisify(execFile)("/usr/bin/swiftc", [
-  "-parse-as-library",
-  "-module-cache-path",cache,
-  "-target",
-  "arm64-apple-macosx14.0",
-  ...(await readdir(join(root, "native"))).filter(name => name.endsWith(".swift")).sort().map(name => join(root, "native", name)),
-  "-o",
-  join(app, "Contents/MacOS/Pipeline"),
-]);
+const buildArgs = ["build", "--package-path", join(root,"native"), "--scratch-path", join(root,"dist/NativeBuild"), "--configuration", "release", "--disable-automatic-resolution"];
+await promisify(execFile)("/usr/bin/swift", [...buildArgs,"--product","Pipeline"], {maxBuffer:16*1024*1024});
+const output = await promisify(execFile)("/usr/bin/swift", [...buildArgs,"--show-bin-path"]);
+await cp(join(output.stdout.trim(),"Pipeline"),join(app,"Contents/MacOS/Pipeline"));
+for (const [name,file] of [["SwiftTerm","SwiftTerm/LICENSE"],["SwiftSystem","swift-system/LICENSE.txt"],["SwiftSubprocess","swift-subprocess/LICENSE"]])
+  await cp(join(root,"dist/NativeBuild/checkouts",file),join(app,"Contents/Resources",name+"-LICENSE.txt"));
 await writeFile(
   join(app, "Contents/Info.plist"),
   `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Pipeline</string><key>CFBundleIdentifier</key><string>com.susanbeasles.pipeline</string><key>CFBundleName</key><string>Pipeline</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>14.0</string><key>LSUIElement</key><true/><key>NSHighResolutionCapable</key><true/></dict></plist>`,

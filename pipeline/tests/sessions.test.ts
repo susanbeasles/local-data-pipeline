@@ -463,3 +463,34 @@ test("unverifiable external MCP restrictions fail before any prompt reaches the 
   await assert.rejects(readFile(join(session.workspace, "invocation.json")), /ENOENT/);
   assert.doesNotMatch(JSON.stringify(await sessions.snapshot(session.id)), /DO NOT LEAK/);
 });
+
+test("interactive terminal plan retains corpus guards and isolates provider history", async (t) => {
+  const f = await fixture(t, root => ({protectedRoots:[join(root,"secret.txt")]}));
+  const plan = await f.sessions.terminal("codex");
+  assert.equal(plan.executable, "/usr/bin/sandbox-exec");
+  assert.match(plan.args[1], /deny file-write/);
+  assert.match(plan.args[1], /deny file-read-data/);
+  assert.ok(plan.args.includes("on-request"));
+  assert.ok(!plan.args.includes("--dangerously-bypass-approvals-and-sandbox"));
+  assert.equal(plan.env.TERM, "xterm-256color");
+  assert.ok(plan.workspace.startsWith(f.root));
+  assert.notEqual(plan.env.CODEX_HOME, f.home);
+  assert.match(await readFile(join(plan.env.CODEX_HOME!,"config.toml"),"utf8"), /on-request/);
+  await assert.rejects(readFile(join(plan.env.CODEX_HOME!,"sessions/old.jsonl")), /ENOENT/);
+  assert.ok(plan.args.some(v=>v.includes('mcp_servers.')&&v.endsWith('.enabled=false')));
+  await assert.rejects(f.sessions.terminal("invalid" as "codex"), /provider/);
+});
+
+test("interactive CLI writes artifacts inside one workspace and cannot alter outside files", async(t)=>{
+  const f=await fixture(t,root=>({protectedRoots:[join(root,"secret.txt")]}));
+  const plan=await f.sessions.terminal("codex");
+  assert.ok(plan.env.CODEX_HOME!.startsWith(plan.workspace+"/"));
+  assert.match(await readFile(join(plan.workspace,"README.md"),"utf8"), /proposals for human review/);
+  const result=spawnSync(plan.executable,plan.args,{cwd:plan.workspace,env:plan.env,input:"ESCAPE READ_ESCAPE",encoding:"utf8",timeout:10000});
+  assert.equal(result.status,0,result.stderr);
+  const rows=result.stdout.trim().split("\n").map(v=>JSON.parse(v));
+  assert.equal(rows.find(v=>v.type==="escape")?.allowed,false);
+  assert.ok(rows.filter(v=>v.type==="read_escape").every(v=>v.blocked===true));
+  assert.ok(await readFile(join(plan.workspace,"invocation.json"),"utf8"));
+  await assert.rejects(f.sessions.terminal("codex","../../escape"),/identity/);
+});

@@ -394,6 +394,7 @@ async function isolatedState(state: State, path: string) {
 async function boundary(
   state: State,
   args: string[],
+  interactive = false,
 ): Promise<{ executable: string; args: string[] }> {
   if (process.platform !== "darwin")
     throw Error("Scoped filesystem read boundary unavailable on this platform");
@@ -436,7 +437,9 @@ async function boundary(
   );
   const sub = (paths: string[]) => paths.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
   const lit = literals.map((p) => `(literal ${JSON.stringify(p)})`).join(" ");
-  let profile = `(version 1)(allow default)(deny file-read*)(deny file-write*)(allow file-read-metadata)(allow file-read* ${sub([...runtime, workspace, native, ...(state.history ? [state.history] : []), ...roots])} ${lit})(allow file-write* ${sub([workspace, native])} (subpath "/dev"))`;
+  const devices = interactive ? '(literal "/dev/null") (literal "/dev/tty") (regex #"^/dev/ttys[0-9]+$")' : '(subpath "/dev")';
+  let profile = `(version 1)(allow default)(deny file-read*)(deny file-write*)(allow file-read-metadata)(allow file-read* ${sub([...runtime, workspace, native, ...(state.history ? [state.history] : []), ...roots])} ${lit})(allow file-write* ${sub([workspace, native])} ${devices})`;
+  if (interactive) profile += '(allow file-read* (regex #"^/dev/(tty|ttys[0-9]+|ptmx)$"))';
   // Native configuration/auth/rules are immutable snapshots, not CLI-writable
   // user state. Protected source roots remain unwritable even if approved to read.
   for (const p of deny) profile += `(deny file-write* (subpath ${JSON.stringify(p)}))`;
@@ -457,6 +460,51 @@ async function boundary(
     executable: "/usr/bin/sandbox-exec",
     args: ["-p", profile, state.provider.executable, ...args],
   };
+}
+async function scopedMcp(state: State) {
+    if (state.provider.id === "codex") {
+      const probe = async (overrides: string[] = []) => {
+        const launch = await boundary(state, [
+          "--no-daemon",
+          ...overrides,
+          "mcp",
+          "list",
+          "--json",
+        ]);
+        try {
+          const result = await runFile(launch.executable, launch.args, {
+            cwd: state.session.workspace,
+            env: environment(state),
+            timeout: 5000,
+            maxBuffer: 1024 * 1024,
+          });
+          const rows: unknown = JSON.parse(result.stdout);
+          if (
+            !Array.isArray(rows) ||
+            rows.length > 128 ||
+            rows.some(
+              (row) =>
+                !row ||
+                typeof row !== "object" ||
+                typeof row.name !== "string" ||
+                !/^[a-zA-Z0-9_-]{1,128}$/.test(row.name) ||
+                typeof row.enabled !== "boolean",
+            )
+          )
+            throw Error();
+          return rows as { name: string; enabled: boolean }[];
+        } catch {
+          throw Error("Unable to verify scoped MCP restrictions");
+        }
+      };
+      state.mcp = (await probe()).map((row) => row.name);
+      const disabled = state.mcp.flatMap((name) => [
+        "-c",
+        `mcp_servers.${JSON.stringify(name)}.enabled=false`,
+      ]);
+      if ((await probe(disabled)).some((row) => row.enabled || !state.mcp!.includes(row.name)))
+        throw Error("Scoped MCP tools could not be disabled");
+    }
 }
 function promptFor(state: State) {
   if (state.mode === "resume" || state.mode === "branch")
@@ -597,6 +645,45 @@ export class Sessions {
     } finally {
       lock.close();
     }
+  }
+  /** Prepare a fresh interactive CLI without starting it or importing rollout history. */
+  async terminal(id: Provider["id"], key: string = randomUUID()) {
+    if (process.platform !== "darwin") throw Error("Native terminal boundary requires macOS");
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(key)) throw Error("Invalid terminal identity");
+    const provider = (await this.available()).find(p => p.id === id);
+    if (!provider?.available) throw Error(provider?.reason || "provider unavailable");
+    const actual = await canonical(this.root);
+    for (const root of this.options.protectedRoots) {
+      const protectedRoot = await canonical(root);
+      if (actual === protectedRoot || actual.startsWith(protectedRoot + sep) || protectedRoot.startsWith(actual + sep))
+        throw Error("Terminal state and protected sources overlap");
+    }
+    const path = join(this.root, "terminals", key), workspace = join(path, "workspace");
+    await directory(join(this.root,"terminals"));
+    await mkdir(path,{mode:0o700});
+    await directory(join(workspace, ".tmp"));
+    const state: State = {
+      session: {id:key, provider:id, kind:"help", status:"idle", workspace, createdAt:now(), updatedAt:now(), turn:1, boundary:"macos+provider"},
+      provider:{id,executable:await realpath(provider.executable)}, initial:"",pending:"",mode:"start",token:randomUUID(),options:this.options,
+    };
+    await isolatedState(state,join(workspace,".cli"));
+    for (const name of ["notes","requests","decisions"]) await directory(join(workspace,name));
+    const guidance = "# Review workspace\n\nOnly this workspace is writable. Source data and pipeline files are protected.\nWrite findings under notes/, proposed changes under requests/, and architectural decisions under decisions/.\nA change request should include the problem, supporting evidence, proposed change, affected resources, risks and validation steps.\nArtifacts are proposals for human review; creating one does not apply a change or restart a pipeline.\nDo not include credentials in artifacts. Private CLI state is held in .cli/ and is not a review artifact.\n";
+    for (const name of ["README.md","AGENTS.md","CLAUDE.md"]) await writeFile(join(workspace,name),guidance,{flag:"wx",mode:0o600});
+    const templates = {
+      "notes/TEMPLATE.md": "# Finding\n\nStatus: draft\n\n## Observation\n\n## Evidence and provenance\n\n## Interpretation\n\n## Suggested next action\n",
+      "requests/TEMPLATE.md": "# Change request\n\nStatus: proposed — not applied\n\n## Problem\n\n## Evidence and affected resources\n\n## Proposed change\n\n## Risks and rollback\n\n## Validation\n\n## Human approval\nPending\n",
+      "decisions/TEMPLATE.md": "# Architecture decision\n\nStatus: proposed\n\n## Context\n\n## Options\n\n## Proposed decision\n\n## Consequences\n\n## Approval\nPending\n",
+    };
+    for (const [name,body] of Object.entries(templates)) await writeFile(join(workspace,name),body,{flag:"wx",mode:0o600});
+    await scopedMcp(state);
+    const args = id === "codex"
+      ? ["--no-daemon", "--sandbox", "workspace-write", "--ask-for-approval", "on-request", "--no-alt-screen", "-C", workspace, ...(state.mcp || []).flatMap(name=>["-c", `mcp_servers.${JSON.stringify(name)}.enabled=false`])]
+      : ["--permission-mode", "default", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'];
+    const launch = await boundary(state,args,true);
+    const env: NodeJS.ProcessEnv = {...environment(state),TERM:"xterm-256color",COLORTERM:"truecolor",TERM_PROGRAM:"Pipeline"};
+    await atomic(join(path,"terminal.json"), {id:key,provider:id,workspace,createdAt:now(),boundary:"macos+provider"});
+    return {...launch,workspace,env};
   }
   async start(input: Start): Promise<Session> {
     return this.create(input);
@@ -1053,49 +1140,7 @@ async function worker(path: string, token: string) {
   try {
     await directory(join(state.session.workspace, ".tmp"));
     await isolatedState(state, path);
-    if (state.provider.id === "codex") {
-      const probe = async (overrides: string[] = []) => {
-        const launch = await boundary(state, [
-          "--no-daemon",
-          ...overrides,
-          "mcp",
-          "list",
-          "--json",
-        ]);
-        try {
-          const result = await runFile(launch.executable, launch.args, {
-            cwd: state.session.workspace,
-            env: environment(state),
-            timeout: 5000,
-            maxBuffer: 1024 * 1024,
-          });
-          const rows: unknown = JSON.parse(result.stdout);
-          if (
-            !Array.isArray(rows) ||
-            rows.length > 128 ||
-            rows.some(
-              (row) =>
-                !row ||
-                typeof row !== "object" ||
-                typeof row.name !== "string" ||
-                !/^[a-zA-Z0-9_-]{1,128}$/.test(row.name) ||
-                typeof row.enabled !== "boolean",
-            )
-          )
-            throw Error();
-          return rows as { name: string; enabled: boolean }[];
-        } catch {
-          throw Error("Unable to verify scoped MCP restrictions");
-        }
-      };
-      state.mcp = (await probe()).map((row) => row.name);
-      const disabled = state.mcp.flatMap((name) => [
-        "-c",
-        `mcp_servers.${JSON.stringify(name)}.enabled=false`,
-      ]);
-      if ((await probe(disabled)).some((row) => row.enabled || !state.mcp!.includes(row.name)))
-        throw Error("Scoped MCP tools could not be disabled");
-    }
+    await scopedMcp(state);
     await save();
     const prompt = promptFor(state);
     const { executable, args } = await boundary(state, argumentsFor(state));

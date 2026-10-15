@@ -7,7 +7,7 @@ const digest = (v: string) => /^[a-f0-9]{64}$/.test(v);
 const encode = (v: unknown) => JSON.stringify(v) + "\n";
 const limit = 32 * 1024 * 1024;
 const code =
-  /^(pipeline\/(legacy\/)?[a-z0-9-]+\.(ts|py|c|sql)|config\/residency\.json|native\/[A-Za-z0-9]+\.(swift|ts)|package(-lock)?\.json)$/;
+  /^(pipeline\/(legacy\/)?[a-z0-9-]+\.(ts|py|c|sql)|config\/residency\.json|native\/(tests\/(TerminalPTY\/)?[A-Za-z0-9]+\.swift|pty\/(pty\.c|include\/CPty\.h)|Package\.resolved|[A-Za-z0-9]+\.(swift|ts))|package(-lock)?\.json)$/;
 type Resource = "pipeline.executor" | "pipeline.control" | "pipeline.metadata";
 type Source = {
   format: "pipeline-source/1";
@@ -73,8 +73,14 @@ export class DeploymentBundle {
       .filter((n) => /^[a-z0-9-]+\.(ts|py|c|sql)$/.test(n))
       .map((n) => "pipeline/" + n);
     const native = (await readdir(join(sourceRoot, "native")))
-      .filter((n) => /^[A-Za-z0-9]+\.(swift|ts)$/.test(n))
+      .filter((n) => /^[A-Za-z0-9]+\.(swift|ts)$/.test(n) || n === "Package.resolved")
       .map((n) => "native/" + n);
+    if (native.includes("native/Package.swift")) {
+      for (const path of ["native/Package.resolved","native/pty/pty.c","native/pty/include/CPty.h","native/tests/TerminalPTY/PTYTests.swift","native/tests/UsageTest.swift","native/tests/JsonTest.swift"]) {
+        await bytes(join(sourceRoot,path));
+        if (!native.includes(path)) native.push(path);
+      }
+    }
     const legacy = join(sourceRoot, "pipeline", "legacy");
     try {
       const stat = await lstat(legacy);
