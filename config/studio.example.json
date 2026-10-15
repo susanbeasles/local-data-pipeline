@@ -1,0 +1,16 @@
+{
+  "format": "studio/1",
+  "state": "../state/studio",
+  "sources": [
+    {
+      "id": "example",
+      "name": "Example local collection",
+      "kind": "sqlite",
+      "root": "../../example-data",
+      "database": "content.sqlite"
+    }
+  ],
+  "providers": [],
+  "protectedRoots": ["../../example-data"],
+  "readRoots": []
+}

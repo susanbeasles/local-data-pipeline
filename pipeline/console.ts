@@ -1,3 +1,4 @@
+import { receipt as storedReceipt } from "./records.ts";
 import { usage } from "./usage.ts";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { DatabaseSync } from "node:sqlite";
@@ -35,21 +36,15 @@ export async function consoleServer(work: string, port = 0) {
   async function receipt(kind: string, id: string) {
     if (!/^[a-f0-9]{64}$/.test(id)) throw Error("invalid job");
     const db = new DatabaseSync(dbPath(kind), { readOnly: true });
-    let row;
     try {
-      row = db.prepare("SELECT output,outputHash FROM jobs WHERE id=?").get(id);
+      const row = db
+        .prepare("SELECT outputHash FROM jobs WHERE id=? AND state='completed'")
+        .get(id);
+      if (!row?.outputHash) throw Error("no completed receipt");
+      return storedReceipt(db, id, String(row.outputHash), 8 * 1024 * 1024);
     } finally {
       db.close();
     }
-    if (!row?.output || !row.outputHash) throw Error("no completed receipt");
-    const path = await realpath(String(row.output));
-    if (!path.startsWith(work + sep)) throw Error("receipt outside work");
-    if ((await stat(path)).size > 8 * 1024 * 1024)
-      throw Error("receipt exceeds browser preview limit; use local artifact");
-    const bytes = await readFile(path);
-    if (bytes.length > 8 * 1024 * 1024) throw Error("receipt exceeds browser preview limit");
-    if (hash(bytes) !== row.outputHash) throw Error("receipt integrity mismatch");
-    return JSON.parse(bytes.toString("utf8"));
   }
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader("Cache-Control", "no-store");

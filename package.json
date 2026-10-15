@@ -16,8 +16,14 @@
     "load": "node pipeline/tests/load.ts"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.3.7",
+    "@types/emscripten": "1.41.2",
     "@types/node": "24.10.1",
+    "@types/pg": "8.15.5",
     "prettier": "3.6.2",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
   }
 }

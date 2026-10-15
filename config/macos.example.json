@@ -1,0 +1,9 @@
+{
+  "name": "pipeline-check",
+  "runner": "../state/tools/tart-2.41.0/tart.app/Contents/MacOS/tart",
+  "home": "../state/macos-vms",
+  "image": "ghcr.io/cirruslabs/macos-tahoe-base@sha256:87f3aa5ce21b5c876268f233bdfecf38b4c2a8116fe9bbb718e714cbae187377",
+  "diskBytes": 50000000000,
+  "memoryBytes": 25769803776,
+  "cpus": 4
+}

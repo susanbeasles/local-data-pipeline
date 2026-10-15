@@ -1,0 +1,923 @@
+{
+  "format": "workflow-example/1",
+  "description": "Synthetic five-source dual JSON-record/JSONL fanout and deterministic inference fixture. No provider call, source collection, or external publication occurs.",
+  "registry": {
+    "adapters": [
+      {
+        "artifact": "fd2fd16848d0a012aed00f3209dfe78f190593c4d38ca2101de5ad98f895d393",
+        "capabilities": [],
+        "id": "fixture-audit",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "artifact": "13c58ddef998833e471a5df7794a87ca0888e4d5a40c303a1e1fd347a8d15ef2",
+        "capabilities": ["model.invoke", "prompt.read", "rule.read"],
+        "id": "fixture-inference",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "artifact": "b8e1d09d53524f7eeb7ef52324c93c9b1a3b52f668dd83c8160c1bde2d7f9742",
+        "capabilities": ["data.write"],
+        "id": "fixture-publish",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "artifact": "6f1ef89f2be86e779a229e50a22adb75ee30021f0d10f90e834fba9142e108a3",
+        "capabilities": ["data.read"],
+        "id": "fixture-reader",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      }
+    ],
+    "contracts": [
+      {
+        "format": "json",
+        "id": "count",
+        "kind": "count",
+        "schema": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "format": "json",
+        "id": "record",
+        "kind": "record",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": ["id", "text"],
+          "type": "object"
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "format": "json",
+        "id": "report",
+        "kind": "report",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "representations": {
+              "type": "integer"
+            },
+            "summary": {
+              "additionalProperties": false,
+              "properties": {
+                "count": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": ["ids", "count"],
+              "type": "object"
+            }
+          },
+          "required": ["summary", "representations"],
+          "type": "object"
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "format": "json",
+        "id": "summary",
+        "kind": "summary",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": ["ids", "count"],
+          "type": "object"
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "format": "jsonl",
+        "id": "text",
+        "kind": "record",
+        "schema": {
+          "type": "string"
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      }
+    ],
+    "format": "registry/1",
+    "resources": [
+      {
+        "body": {
+          "name": "deterministic-fixture",
+          "provider": "synthetic"
+        },
+        "id": "fixture-model",
+        "kind": "model",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "text": "Synthetic metadata only; no provider is invoked."
+        },
+        "id": "fixture-prompt",
+        "kind": "prompt",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "minimum": 1
+        },
+        "id": "fixture-rule",
+        "kind": "rule",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "id": "source-1",
+          "text": "synthetic 1"
+        },
+        "id": "source-1",
+        "kind": "dataset",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "id": "source-2",
+          "text": "synthetic 2"
+        },
+        "id": "source-2",
+        "kind": "dataset",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "id": "source-3",
+          "text": "synthetic 3"
+        },
+        "id": "source-3",
+        "kind": "dataset",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "id": "source-4",
+          "text": "synthetic 4"
+        },
+        "id": "source-4",
+        "kind": "dataset",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "body": {
+          "id": "source-5",
+          "text": "synthetic 5"
+        },
+        "id": "source-5",
+        "kind": "dataset",
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      }
+    ],
+    "types": [
+      {
+        "adapter": {
+          "digest": "a766d8bedf327002a9b41733f5a0e4837756b17b116c2e7b694938da70a4e833",
+          "id": "fixture-audit",
+          "version": 1
+        },
+        "bindings": {},
+        "capabilities": [],
+        "category": "aggregate",
+        "config": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": "fixture-audit",
+        "ports": {
+          "inputs": {
+            "records": {
+              "cardinality": "many",
+              "contract": {
+                "digest": "a831d5ac8e9d18bc879e716d6a8ac969956a4c82e838aa0e37c1ffcaa4cb6981",
+                "id": "text",
+                "version": 1
+              },
+              "required": true
+            }
+          },
+          "outputs": {
+            "count": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "2318e76b1e7b61201634adb896a8c71fc6f7201278f5e7f13b7f2b79c082f4c3",
+                "id": "count",
+                "version": 1
+              },
+              "required": true
+            }
+          }
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "adapter": {
+          "digest": "f4d5056c4b43d1efb9ca80fdfce53c0aa883a8d59a9041849f07a5c38a805ac4",
+          "id": "fixture-inference",
+          "version": 1
+        },
+        "bindings": {
+          "model": {
+            "kind": "model",
+            "required": true
+          },
+          "prompt": {
+            "kind": "prompt",
+            "required": true
+          },
+          "rule": {
+            "kind": "rule",
+            "required": true
+          }
+        },
+        "capabilities": ["model.invoke", "prompt.read", "rule.read"],
+        "category": "infer",
+        "config": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": "fixture-infer",
+        "ports": {
+          "inputs": {
+            "records": {
+              "cardinality": "many",
+              "contract": {
+                "digest": "ad4a1ab33217374b78a35d1d20555d1d0a0c57b0d94d71476add67fc8bc64298",
+                "id": "record",
+                "version": 1
+              },
+              "required": true
+            }
+          },
+          "outputs": {
+            "summary": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "794fa7b073cf9224197c58571f347db54c4778706725d10a85708c91170c54bc",
+                "id": "summary",
+                "version": 1
+              },
+              "required": true
+            }
+          }
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "adapter": {
+          "digest": "e589a7471c3a87a13bbebb527514b7f382edf83f619e6e8c6f617e72e0f4bdac",
+          "id": "fixture-publish",
+          "version": 1
+        },
+        "bindings": {},
+        "capabilities": ["data.write"],
+        "category": "publish",
+        "config": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": "fixture-publish",
+        "ports": {
+          "inputs": {
+            "count": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "2318e76b1e7b61201634adb896a8c71fc6f7201278f5e7f13b7f2b79c082f4c3",
+                "id": "count",
+                "version": 1
+              },
+              "required": true
+            },
+            "summary": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "794fa7b073cf9224197c58571f347db54c4778706725d10a85708c91170c54bc",
+                "id": "summary",
+                "version": 1
+              },
+              "required": true
+            }
+          },
+          "outputs": {
+            "report": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "b3d35ae2a380e15e3bf5a0df5baee39f380f41f39dc8240d11899f5b1963c114",
+                "id": "report",
+                "version": 1
+              },
+              "required": true
+            }
+          }
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      },
+      {
+        "adapter": {
+          "digest": "0eafd996d9149dfb8c63d3787487756e6089ec901a78a383f1f1da11c86749e6",
+          "id": "fixture-reader",
+          "version": 1
+        },
+        "bindings": {
+          "source": {
+            "kind": "dataset",
+            "required": true
+          }
+        },
+        "capabilities": ["data.read"],
+        "category": "ingest",
+        "config": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "id": "fixture-source",
+        "ports": {
+          "inputs": {},
+          "outputs": {
+            "json": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "ad4a1ab33217374b78a35d1d20555d1d0a0c57b0d94d71476add67fc8bc64298",
+                "id": "record",
+                "version": 1
+              },
+              "required": true
+            },
+            "text": {
+              "cardinality": "one",
+              "contract": {
+                "digest": "a831d5ac8e9d18bc879e716d6a8ac969956a4c82e838aa0e37c1ffcaa4cb6981",
+                "id": "text",
+                "version": 1
+              },
+              "required": true
+            }
+          }
+        },
+        "scope": {
+          "owner": "operator",
+          "project": "project",
+          "workspace": "workspace"
+        },
+        "version": 1
+      }
+    ]
+  },
+  "workflow": {
+    "format": "workflow/1",
+    "id": "five-sources",
+    "version": 1,
+    "scope": {
+      "workspace": "workspace",
+      "project": "project",
+      "owner": "operator"
+    },
+    "name": "Synthetic dual representations",
+    "budget": {
+      "cpuMs": 100000,
+      "memoryBytes": 16777216,
+      "storageBytes": 1048576,
+      "timeMs": 100000,
+      "tokens": 10000,
+      "costMicros": 100000,
+      "concurrency": 10
+    },
+    "stages": [
+      {
+        "id": "ingest",
+        "name": "Ingest",
+        "budget": {
+          "cpuMs": 100000,
+          "memoryBytes": 16777216,
+          "storageBytes": 1048576,
+          "timeMs": 100000,
+          "tokens": 10000,
+          "costMicros": 100000,
+          "concurrency": 10
+        }
+      },
+      {
+        "id": "analyze",
+        "name": "Analyze",
+        "budget": {
+          "cpuMs": 100000,
+          "memoryBytes": 16777216,
+          "storageBytes": 1048576,
+          "timeMs": 100000,
+          "tokens": 10000,
+          "costMicros": 100000,
+          "concurrency": 10
+        }
+      },
+      {
+        "id": "publish",
+        "name": "Publish",
+        "budget": {
+          "cpuMs": 100000,
+          "memoryBytes": 16777216,
+          "storageBytes": 1048576,
+          "timeMs": 100000,
+          "tokens": 10000,
+          "costMicros": 100000,
+          "concurrency": 10
+        }
+      }
+    ],
+    "steps": [
+      {
+        "id": "read-1",
+        "stage": "ingest",
+        "type": {
+          "digest": "ded8495a5e45e6829b1b2469705c4167a936785e3a373e5093771a2202ac3603",
+          "id": "fixture-source",
+          "version": 1
+        },
+        "config": {},
+        "pins": {
+          "source": {
+            "digest": "d58daafe8f042cea1f64712cbf0b975188606075e47c45535b31baf99af0071e",
+            "id": "source-1",
+            "version": 1
+          }
+        },
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "read-2",
+        "stage": "ingest",
+        "type": {
+          "digest": "ded8495a5e45e6829b1b2469705c4167a936785e3a373e5093771a2202ac3603",
+          "id": "fixture-source",
+          "version": 1
+        },
+        "config": {},
+        "pins": {
+          "source": {
+            "digest": "542c9d4de960b44284f665233669dfe51702e31938520c156770d204f6b47718",
+            "id": "source-2",
+            "version": 1
+          }
+        },
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "read-3",
+        "stage": "ingest",
+        "type": {
+          "digest": "ded8495a5e45e6829b1b2469705c4167a936785e3a373e5093771a2202ac3603",
+          "id": "fixture-source",
+          "version": 1
+        },
+        "config": {},
+        "pins": {
+          "source": {
+            "digest": "46bee8caa7cdc623884fb1aaa4236e10df8ff701b259ba0634b3e862c0451897",
+            "id": "source-3",
+            "version": 1
+          }
+        },
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "read-4",
+        "stage": "ingest",
+        "type": {
+          "digest": "ded8495a5e45e6829b1b2469705c4167a936785e3a373e5093771a2202ac3603",
+          "id": "fixture-source",
+          "version": 1
+        },
+        "config": {},
+        "pins": {
+          "source": {
+            "digest": "88d0ee324d737b081b16946528062ccf1665236739d6577e6ac435f38fb29ed7",
+            "id": "source-4",
+            "version": 1
+          }
+        },
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "read-5",
+        "stage": "ingest",
+        "type": {
+          "digest": "ded8495a5e45e6829b1b2469705c4167a936785e3a373e5093771a2202ac3603",
+          "id": "fixture-source",
+          "version": 1
+        },
+        "config": {},
+        "pins": {
+          "source": {
+            "digest": "73ff5826a0bf6c428239a48758fd1cc74394d15ef69e4706557d618ed875bfd5",
+            "id": "source-5",
+            "version": 1
+          }
+        },
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "infer",
+        "stage": "analyze",
+        "type": {
+          "digest": "87a407788e972d3b1f6cc75aee13837660497fb273e5a3197ab9a91e695e62b4",
+          "id": "fixture-infer",
+          "version": 1
+        },
+        "config": {},
+        "pins": {
+          "model": {
+            "digest": "51a09ef50f9d076d74c3806ead8e9de419750e6951f77efe970722ec80337e09",
+            "id": "fixture-model",
+            "version": 1
+          },
+          "prompt": {
+            "digest": "837e382d5933458f6aa30430767c4970e98ffae9e7c265e7fa4c19efd403ece7",
+            "id": "fixture-prompt",
+            "version": 1
+          },
+          "rule": {
+            "digest": "bee9b96504809b75c1df4841d4af96005a562bbb565e4a0319d23991bf0e6456",
+            "id": "fixture-rule",
+            "version": 1
+          }
+        },
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "audit",
+        "stage": "analyze",
+        "type": {
+          "digest": "6165e9f22ce3a20dc6d6fa4c7d57669afbf6ab2954f180c363dc762f677e9d30",
+          "id": "fixture-audit",
+          "version": 1
+        },
+        "config": {},
+        "pins": {},
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      },
+      {
+        "id": "publish",
+        "stage": "publish",
+        "type": {
+          "digest": "98efcc62de4fd01f5451c589f1f8f938ab518e848d66dfd5e8424643b688bac8",
+          "id": "fixture-publish",
+          "version": 1
+        },
+        "config": {},
+        "pins": {},
+        "budget": {
+          "cpuMs": 1000,
+          "memoryBytes": 1048576,
+          "storageBytes": 16384,
+          "timeMs": 1000,
+          "tokens": 100,
+          "costMicros": 1000,
+          "concurrency": 1
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "json-1",
+        "from": {
+          "step": "read-1",
+          "port": "json"
+        },
+        "to": {
+          "step": "infer",
+          "port": "records"
+        }
+      },
+      {
+        "id": "text-1",
+        "from": {
+          "step": "read-1",
+          "port": "text"
+        },
+        "to": {
+          "step": "audit",
+          "port": "records"
+        }
+      },
+      {
+        "id": "json-2",
+        "from": {
+          "step": "read-2",
+          "port": "json"
+        },
+        "to": {
+          "step": "infer",
+          "port": "records"
+        }
+      },
+      {
+        "id": "text-2",
+        "from": {
+          "step": "read-2",
+          "port": "text"
+        },
+        "to": {
+          "step": "audit",
+          "port": "records"
+        }
+      },
+      {
+        "id": "json-3",
+        "from": {
+          "step": "read-3",
+          "port": "json"
+        },
+        "to": {
+          "step": "infer",
+          "port": "records"
+        }
+      },
+      {
+        "id": "text-3",
+        "from": {
+          "step": "read-3",
+          "port": "text"
+        },
+        "to": {
+          "step": "audit",
+          "port": "records"
+        }
+      },
+      {
+        "id": "json-4",
+        "from": {
+          "step": "read-4",
+          "port": "json"
+        },
+        "to": {
+          "step": "infer",
+          "port": "records"
+        }
+      },
+      {
+        "id": "text-4",
+        "from": {
+          "step": "read-4",
+          "port": "text"
+        },
+        "to": {
+          "step": "audit",
+          "port": "records"
+        }
+      },
+      {
+        "id": "json-5",
+        "from": {
+          "step": "read-5",
+          "port": "json"
+        },
+        "to": {
+          "step": "infer",
+          "port": "records"
+        }
+      },
+      {
+        "id": "text-5",
+        "from": {
+          "step": "read-5",
+          "port": "text"
+        },
+        "to": {
+          "step": "audit",
+          "port": "records"
+        }
+      },
+      {
+        "id": "summary",
+        "from": {
+          "step": "infer",
+          "port": "summary"
+        },
+        "to": {
+          "step": "publish",
+          "port": "summary"
+        }
+      },
+      {
+        "id": "count",
+        "from": {
+          "step": "audit",
+          "port": "count"
+        },
+        "to": {
+          "step": "publish",
+          "port": "count"
+        }
+      }
+    ]
+  },
+  "policy": {
+    "scope": {
+      "workspace": "workspace",
+      "project": "project",
+      "owner": "operator"
+    },
+    "capabilities": ["data.read", "data.write", "model.invoke", "prompt.read", "rule.read"],
+    "budget": {
+      "cpuMs": 100000,
+      "memoryBytes": 16777216,
+      "storageBytes": 1048576,
+      "timeMs": 100000,
+      "tokens": 10000,
+      "costMicros": 100000,
+      "concurrency": 10
+    },
+    "grants": []
+  }
+}

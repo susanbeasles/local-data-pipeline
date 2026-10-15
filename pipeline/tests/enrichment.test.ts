@@ -54,9 +54,7 @@ test("chunk roles run in order with validated upstream results and namespace pro
         unknowns: [],
       };
     return {
-      entities: [
-        { id: "e1", name: "store", kind: "component", namespace: "fixture" },
-      ],
+      entities: [{ id: "e1", name: "store", kind: "component", namespace: "fixture" }],
       claims: [
         {
           subject: "e1",
@@ -104,9 +102,7 @@ test("corrupt upstream outputs invalidate every completed descendant", async () 
   const infer = async (r: any) => {
     calls++;
     if (r.role === "tag") return { tags: [changed ? "changed" : "original"] };
-    assert.deepEqual(r.payload.prior.tag.tags, [
-      changed ? "changed" : "original",
-    ]);
+    assert.deepEqual(r.payload.prior.tag.tags, [changed ? "changed" : "original"]);
     return {
       namespace: "fixture",
       system: "store",
@@ -121,11 +117,14 @@ test("corrupt upstream outputs invalidate every completed descendant", async () 
     };
   };
   assert.ok((await run(cfg, infer)).integrity);
-  for (const name of await readdir(join(cfg.work, "output"))) {
-    const file = join(cfg.work, "output", name);
-    if (JSON.parse(await readFile(file, "utf8")).role === "tag")
-      await writeFile(file, "corrupt");
-  }
+  const { Store } = await import("../store.ts");
+  const store = new Store(join(cfg.work, "state/pipeline.sqlite"));
+  store.db
+    .prepare(
+      "UPDATE results SET body=json_set(body,'$.result.tags',json('[\"corrupt\"]')) WHERE job IN (SELECT id FROM jobs WHERE role='tag')",
+    )
+    .run();
+  store.close();
   changed = true;
   assert.ok((await run(cfg, infer)).integrity);
   assert.equal(calls, 4);

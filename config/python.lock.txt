@@ -14,7 +14,6 @@ mlx-lm==0.29.1
 mlx-metal==0.29.3
 numpy==2.0.2
 packaging==26.3
-pip==21.2.4
 protobuf==6.33.6
 pydantic==1.10.22
 PyYAML==6.0.3
@@ -22,7 +21,6 @@ regex==2026.1.15
 requests==2.32.5
 safetensors==0.7.0
 sentencepiece==0.2.2
-setuptools==58.0.4
 tokenizers==0.22.2
 tqdm==4.70.1
 transformers==4.57.6

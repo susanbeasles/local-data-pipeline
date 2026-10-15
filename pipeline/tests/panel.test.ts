@@ -138,7 +138,7 @@ test("native resume executes sealed code and frozen configs despite editable pro
   }
 });
 
-test("native sample reader verifies provenance and never follows receipts outside work", async () => {
+test("native samples read SQLite without opening receipt files and reject database tampering", async () => {
   const { Store, hash } = await import("../store.ts");
   const root = await mkdtemp(join(tmpdir(), "panel-sample-")),
     control = join(root, "control"),
@@ -147,7 +147,7 @@ test("native sample reader verifies provenance and never follows receipts outsid
   await mkdir(join(work, "state"), { recursive: true });
   const config = join(control, "config.json"),
     receipt = join(work, "receipt.json"),
-    bytes = JSON.stringify({ result: "synthetic output" });
+    bytes = JSON.stringify({ job: "fixture", result: "synthetic output" });
   await writeFile(config, JSON.stringify({ input: join(root, "input"), work }));
   await writeFile(
     join(control, "production.json"),
@@ -160,21 +160,25 @@ test("native sample reader verifies provenance and never follows receipts outsid
     .prepare(
       "INSERT INTO jobs(id,source,chunk,role,config,state,output,outputHash) VALUES('fixture','source',0,'summarize','config','completed',?,?)",
     )
-    .run(receipt, hash(bytes));
+    .run(receipt, db.records.write("fixture", JSON.parse(bytes)));
   db.close();
   const panel = { control, entry: "unused", project: root };
   try {
     assert.equal((await sample(panel, "summarize")).available, true);
     assert.equal((await sample(panel, "summarize", 1)).available, false);
-    await writeFile(receipt, "corrupted");
-    await assert.rejects(sample(panel, "summarize"), /integrity/);
+    await rm(receipt);
+    assert.equal((await sample(panel, "summarize")).available, true);
     await assert.rejects(sample(panel, "../anything"), /invalid/);
-    const outside = join(root, "outside.json");
-    await writeFile(outside, bytes);
     const changed = new Store(join(work, "state/pipeline.sqlite"));
-    changed.db.prepare("UPDATE jobs SET output=?,outputHash=? WHERE id='fixture'").run(outside,hash(bytes));
+    changed.db
+      .prepare("UPDATE jobs SET output=? WHERE id='fixture'")
+      .run(join(root, "outside.json"));
     changed.close();
-    await assert.rejects(sample(panel,"summarize"),/outside work/);
+    assert.equal((await sample(panel, "summarize")).available, true);
+    const corrupt = new Store(join(work, "state/pipeline.sqlite"));
+    corrupt.db.exec("UPDATE results SET body=json_set(body,'$.result','corrupt')");
+    corrupt.close();
+    await assert.rejects(sample(panel, "summarize"), /integrity/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

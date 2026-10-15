@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile, readFile, readdir, chmod, realpath } from "node:fs/promises";
+import { cp, mkdir, writeFile, readFile, readdir, chmod, realpath, lstat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { seal, fileHash } from "./seal.ts";
 type Manifest = { format: "pipeline-release/1"; hash: string };
@@ -17,8 +17,23 @@ export class Release {
       throw Error("release/source overlap");
     // Reject aliases and special files before copying. Capture bytes, never live symlinks.
     const names = ["pipeline", "config", "package.json", "package-lock.json"];
+    const pkg=JSON.parse(await readFile(join(source,'package.json'),'utf8')),
+      lock=JSON.parse(await readFile(join(source,'package-lock.json'),'utf8'));
+    if(Object.keys(pkg.dependencies??{}).length&&!lock.packages)throw Error('installed locked runtime dependencies required');
+    const dependencies=Object.entries(lock.packages??{}).filter(([name,value])=>name&&!(value as {dev?:boolean}).dev).map(([name,value])=>{
+      const entry=value as {link?:boolean;version?:string};
+      if(!name.startsWith('node_modules/')||name.split('/').some(part=>!part||part==='.'||part==='..')||entry.link||!entry.version)throw Error('unsupported runtime dependency path or link');
+      return {name,version:entry.version};
+    });
+    for(const dep of dependencies){
+      const path=join(source,dep.name);
+      if(await realpath(path)!==path||(await lstat(path)).isSymbolicLink())throw Error('runtime dependency aliases are not immutable');
+      const installed=JSON.parse(await readFile(join(path,'package.json'),'utf8'));
+      if(installed.version!==dep.version)throw Error('runtime dependency version differs from lock');
+    }
+    names.push(...dependencies.map(d=>d.name).filter(name=>!dependencies.some(d=>name.startsWith(d.name+'/'))));
     const digest = async (root: string, name: string) =>
-      ["pipeline", "config"].includes(name)
+      ["pipeline", "config"].includes(name)||name.startsWith('node_modules/')
         ? (await seal(join(root, name))).hash
         : fileHash(join(root, name));
     const before = new Map<string, string>();

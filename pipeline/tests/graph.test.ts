@@ -1,7 +1,7 @@
 import { gates, decide } from "../review.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { enrich } from "../enrich.ts";
@@ -15,14 +15,7 @@ test("all six stages produce attributable graph outputs and resume without repea
   const cfg: Config = {
     input,
     work: join(root, "work"),
-    roles: [
-      "tag",
-      "classify",
-      "summarize",
-      "knowledge",
-      "reconcile",
-      "connect",
-    ],
+    roles: ["tag", "classify", "summarize", "knowledge", "reconcile", "connect"],
     enrichment: { namespace: "fixture" },
     review: { after: ["tag", "reconcile", "connect"] },
     engine: "synthetic",
@@ -35,6 +28,11 @@ test("all six stages produce attributable graph outputs and resume without repea
   let calls = 0;
   const infer = async (r: any) => {
     calls++;
+    // All six stages must consume SQLite data even if every earlier export vanishes.
+    for (const name of await readdir(join(cfg.work, "staging")))
+      if (!name.endsWith(".jsonl")) await rm(join(cfg.work, "staging", name), { force: true });
+    await rm(join(cfg.work, "output"), { recursive: true, force: true });
+    await rm(join(cfg.work, "state/graph/results"), { recursive: true, force: true });
     const name = r.payload?.context.sourceName === "a.txt" ? "Alpha" : "Beta";
     if (r.role === "tag") return { tags: [name] };
     if (r.role === "classify")
@@ -53,9 +51,7 @@ test("all six stages produce attributable graph outputs and resume without repea
     if (r.role === "summarize")
       return {
         summary: name,
-        facts: [
-          { claim: name, basis: "explicit", state: "current", anchorIds: [0] },
-        ],
+        facts: [{ claim: name, basis: "explicit", state: "current", anchorIds: [0] }],
         unknowns: [],
       };
     if (r.role === "knowledge")
@@ -76,8 +72,7 @@ test("all six stages produce attributable graph outputs and resume without repea
       };
     const pair = r.payload.context.candidates;
     assert.equal(r.payload.spans.length, 2);
-    for (const proof of pair.evidence)
-      assert.equal(r.payload.spans[proof.spanId].text, proof.text);
+    for (const proof of pair.evidence) assert.equal(r.payload.spans[proof.spanId].text, proof.text);
     if (r.role === "reconcile") return { groups: [], unknowns: [] };
     assert.ok(r.payload.prior.reconcile);
     return {
@@ -97,8 +92,7 @@ test("all six stages produce attributable graph outputs and resume without repea
   const operator = (async () => {
     while (!stop) {
       for (const gate of await gates(cfg.work))
-        if (gate.state === "waiting")
-          decide(cfg.work, String(gate.id), "approve");
+        if (gate.state === "waiting") decide(cfg.work, String(gate.id), "approve");
       await new Promise((r) => setTimeout(r, 10));
     }
   })();
@@ -109,10 +103,7 @@ test("all six stages produce attributable graph outputs and resume without repea
     stop = true;
     await operator;
   }
-  assert.equal(
-    (await gates(cfg.work)).filter((g) => g.state === "approve").length,
-    3,
-  );
+  assert.equal((await gates(cfg.work)).filter((g) => g.state === "approve").length, 3);
   assert.ok(report.integrity);
   assert.equal(report.completed, 2);
   assert.equal(report.graph.candidates, 1);
@@ -123,9 +114,7 @@ test("all six stages produce attributable graph outputs and resume without repea
   });
   assert.ok(again.integrity);
   assert.equal(again.completed, 2);
-  const graph = JSON.parse(
-    await readFile(join(cfg.work, "output", "graph.json"), "utf8"),
-  );
+  const graph = JSON.parse(await readFile(join(cfg.work, "output", "graph.json"), "utf8"));
   assert.equal(graph.entities.count, 2);
   const entities = (await readFile(graph.entities.path, "utf8"))
     .trim()
@@ -148,14 +137,7 @@ test("graph checkpoints retry failed roles and recover corrupt graph publication
   const cfg: Config = {
     input,
     work: join(root, "work"),
-    roles: [
-      "tag",
-      "classify",
-      "summarize",
-      "knowledge",
-      "reconcile",
-      "connect",
-    ],
+    roles: ["tag", "classify", "summarize", "knowledge", "reconcile", "connect"],
     enrichment: { namespace: "fixture" },
     engine: "synthetic",
     model: "fixture",
@@ -169,11 +151,8 @@ test("graph checkpoints retry failed roles and recover corrupt graph publication
   const infer = async (r: any) => {
     if (["connect", "reconcile"].includes(r.role)) {
       graphCalls++;
-      if (r.role === "connect" && r.attempt === 1)
-        throw Error("controlled inference failure");
-      return r.role === "reconcile"
-        ? { groups: [], unknowns: [] }
-        : { edges: [], unknowns: [] };
+      if (r.role === "connect" && r.attempt === 1) throw Error("controlled inference failure");
+      return r.role === "reconcile" ? { groups: [], unknowns: [] } : { edges: [], unknowns: [] };
     }
     chunkCalls++;
     if (r.role === "tag") return { tags: ["local"] };
@@ -190,12 +169,9 @@ test("graph checkpoints retry failed roles and recover corrupt graph publication
         confidence: "explicit",
         unknowns: [],
       };
-    if (r.role === "summarize")
-      return { summary: r.text, facts: [], unknowns: [] };
+    if (r.role === "summarize") return { summary: r.text, facts: [], unknowns: [] };
     return {
-      entities: [
-        { id: "e1", name: r.text, kind: "component", namespace: "fixture" },
-      ],
+      entities: [{ id: "e1", name: r.text, kind: "component", namespace: "fixture" }],
       claims: [
         {
           subject: "e1",
@@ -224,9 +200,7 @@ test("graph checkpoints retry failed roles and recover corrupt graph publication
   );
   assert.equal(chunkCalls, 8);
   assert.equal(graphCalls, 3);
-  assert.ok(
-    (await fileHash(join(cfg.work, "output", "graph.json"))).length === 64,
-  );
+  assert.ok((await fileHash(join(cfg.work, "output", "graph.json"))).length === 64);
   const retry = { ...cfg, work: join(root, "retry"), attempts: 1 };
   const failed = await enrich(retry, infer);
   assert.equal(failed.integrity, false);

@@ -16,7 +16,7 @@ Set `mlx.package` to the package directory, `mlx.adapters` to `{}` and `mlx.role
 
 ## Runtime and recovery
 
-macOS Apple Silicon, Node 24.19 and the recorded local Python/MLX environment are required. `package-lock.json` pins Node dependencies; `config/python.lock.txt` records the installed Python environment. For an independent environment use Python 3.9 with matching local wheels and `pip install --no-index --find-links /absolute/wheelhouse -r config/python.lock.txt`. Local wheel URL entries must resolve to available files. The wheelhouse is not bundled; do not infer offline reproducibility on a different machine without supplying it.
+macOS Apple Silicon, Node 24.19 and the recorded local Python/MLX environment are required. `package-lock.json` pins Node dependencies; `config/python.lock.txt` records the installed Python environment. Use uv exclusively for Python environment and dependency management: `uv venv --python /usr/bin/python3 --no-python-downloads .venv`, then `uv pip sync --python .venv/bin/python --offline --no-index --find-links /absolute/wheelhouse --require-hashes config/python.uv.lock`. The installed Command Line Tools Python 3.9 framework is supported; the full Xcode application is not required. The wheelhouse is not bundled; do not infer offline reproducibility on a different machine without supplying it.
 
 The launcher enforces OS Seatbelt network denial and read-only input. Model workers additionally deny arbitrary file access, writes and process spawning. Startup fails if network denial is absent. The supervisor monitors aggregate process footprint against 32 GB; this is sampled enforcement, not a hard kernel allocation ceiling. GPU utilization is system-wide and can include other applications.
 
@@ -63,4 +63,6 @@ Synthetic MLX tools and installed-runtime tests use `PIPELINE_CONFIG=/absolute/l
 
 The worker sandbox derives the actual interpreter/framework and Python library version from the selected local runtime. System paths such as `/usr/bin/sandbox-exec` remain platform requirements; no account home is embedded in the policy. Integration tests continue to establish actual network, file-read/write, and process-fork denial.
 
-`config/python.lock.txt` contains version pins, not local wheel URLs. For offline setup supply an operator-owned wheel directory with pip's `--no-index --find-links` options; no installation or downloads happen during path resolution.
+`config/python.lock.txt` contains version pins, not local wheel URLs. For offline setup supply an operator-owned wheel directory with `uv pip sync --offline --no-index --find-links`; no installation or downloads happen during path resolution.
+
+Inference data is authoritative in SQLite, including actual normalized chunk text and result JSON. See [sqlite-data.md](sqlite-data.md) for the data contract, explicit legacy import, JSONL export and database-backed UI review. Existing file-backed checkpoints must be imported before the new runner can resume them.

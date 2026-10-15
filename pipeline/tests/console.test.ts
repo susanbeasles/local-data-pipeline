@@ -42,13 +42,13 @@ test("console decisions affect only durable review ledger and rejects corrupted 
   const store = new Store(join(work, "state/pipeline.sqlite"));
   const id = "a".repeat(64),
     path = join(work, "output/receipt.json"),
-    bytes = JSON.stringify({ result: { text: "<script>evil</script>" } });
+    bytes = JSON.stringify({ job: id, result: { text: "<script>evil</script>" } });
   await writeFile(path, bytes);
   store.db
     .prepare(
       "INSERT INTO jobs(id,source,chunk,role,config,state,output,outputHash) VALUES(?,'source',0,'extract','scope','completed',?,?)",
     )
-    .run(id, path, hash(bytes));
+    .run(id, path, store.records.write(id, JSON.parse(bytes)));
   store.close();
   const app = await consoleServer(work);
   const pending = review(work, "extract", "scope", [
@@ -73,11 +73,17 @@ test("console decisions affect only durable review ledger and rejects corrupted 
     });
     assert.equal(r.status, 200);
     assert.equal(await pending, "approve");
-    await writeFile(path, "{}");
+    const corrupt = new Store(join(work, "state/pipeline.sqlite"));
+    corrupt.db.exec("UPDATE results SET body=json_set(body,'$.result.text','corrupt')");
+    corrupt.close();
     assert.equal((await fetch(app.origin + "/api/receipt?id=" + id, { headers })).status, 400);
   } finally {
-    const waiting=(await gates(work)).find(r=>r.state==="waiting");
-    if(waiting) {const {decide}=await import("../review.ts");decide(work,String(waiting.id),"reject");await pending;}
+    const waiting = (await gates(work)).find((r) => r.state === "waiting");
+    if (waiting) {
+      const { decide } = await import("../review.ts");
+      decide(work, String(waiting.id), "reject");
+      await pending;
+    }
     await app.close();
   }
 });

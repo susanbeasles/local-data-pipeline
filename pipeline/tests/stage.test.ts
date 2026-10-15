@@ -1,13 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  writeFile,
-  stat,
-  readFile,
-  open,
-  realpath,
-} from "node:fs/promises";
+import { mkdtemp, writeFile, stat, readFile, open, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { source } from "../source.ts";
@@ -52,10 +45,7 @@ test("indexed large chunk configuration supports full evidence and corrupt-file 
   const input = join(root, "input"),
     work = join(root, "work");
   await mkdir(input);
-  await writeFile(
-    join(input, "large.log"),
-    "Alpha local record.\n".repeat(900000),
-  );
+  await writeFile(join(input, "large.log"), "Alpha local record.\n".repeat(900000));
   const result = await run(
     {
       input,
@@ -76,9 +66,11 @@ test("indexed large chunk configuration supports full evidence and corrupt-file 
   );
   assert.equal(result.integrity, true);
   assert.equal(result.completed, 1);
-  const chunkFile = join(work, "staging", result.sources[0] + ".jsonl");
-  await writeFile(chunkFile, "corrupt");
+  const { Store } = await import("../store.ts");
+  const db = new Store(join(work, "state/pipeline.sqlite"));
+  db.db.exec("UPDATE chunk_data SET body=json_set(body,'$.text','corrupt') WHERE n=0");
+  db.close();
   const corrupt = await verify(work, input);
   assert.equal(corrupt.integrity, false);
-  assert.ok(corrupt.errors.some((e) => e.startsWith("chunk-jsonl:")));
+  assert.ok(corrupt.errors.some((e) => e.startsWith("chunk:")));
 });

@@ -1,9 +1,9 @@
+import { Records } from "./records.ts";
 import { DatabaseSync } from "node:sqlite";
 import { open, rename, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-export const hash = (v: string | Uint8Array) =>
-  createHash("sha256").update(v).digest("hex");
+export const hash = (v: string | Uint8Array) => createHash("sha256").update(v).digest("hex");
 export async function atomic(path: string, value: unknown, raw = false) {
   await mkdir(dirname(path), { recursive: true });
   const temp = path + "." + randomUUID() + ".tmp",
@@ -48,6 +48,7 @@ export async function publish(path: string, rows: Iterable<string>) {
 }
 export class Store {
   db: DatabaseSync;
+  records: Records;
   private writes: {
     write: () => void;
     resolve: () => void;
@@ -56,14 +57,14 @@ export class Store {
   private timer: ReturnType<typeof setTimeout> | undefined;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
-    this.db
-      .exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
+    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
 CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,path TEXT NOT NULL,hash TEXT,state TEXT NOT NULL,reason TEXT,stage TEXT,stageHash TEXT,generation TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,source TEXT NOT NULL,chunk INTEGER NOT NULL,role TEXT NOT NULL,config TEXT NOT NULL,state TEXT NOT NULL,attempt INTEGER NOT NULL DEFAULT 0,output TEXT,outputHash TEXT,error TEXT);
 CREATE INDEX IF NOT EXISTS jobs_schedule ON jobs(state,source,chunk,role);
 CREATE INDEX IF NOT EXISTS jobs_source ON jobs(source);
 CREATE TABLE IF NOT EXISTS artifacts(path TEXT PRIMARY KEY,hash TEXT NOT NULL,job TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS attempts(job TEXT,attempt INTEGER,state TEXT,error TEXT,time TEXT,PRIMARY KEY(job,attempt));`);
+    this.records = new Records(this.db);
   }
   transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
@@ -98,5 +99,16 @@ CREATE TABLE IF NOT EXISTS attempts(job TEXT,attempt INTEGER,state TEXT,error TE
   close() {
     if (this.writes.length) throw Error("uncommitted state writes");
     this.db.close();
+  }
+}
+
+/** Exports are diagnostics, never a prerequisite for durable inference results. */
+export async function exportRecord(path: string, value: unknown) {
+  try {
+    await atomic(path, value);
+    return true;
+  } catch (error) {
+    console.error(JSON.stringify({ type: "export-failed", path, error: String(error) }));
+    return false;
   }
 }

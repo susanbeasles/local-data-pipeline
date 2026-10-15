@@ -1,0 +1,13 @@
+# PostgreSQL metadata implementation
+
+`pipeline/platform.sql` is the explicit version-1 PostgreSQL migration. Apply it once to a new local metadata database with a migration-owner role; it creates the `platform` schema and records its version. It does not migrate the existing SQLite corpus or operator workspace.
+
+The schema separates ownership, grants, registries, connections/credential references, model and rule definitions, immutable workflow graphs, logical datasets, representations, artifacts, run/task attempts, checkpoints, execution events, lineage, semantic assertions, usage and audit history. Composite foreign keys constrain workspace/project/version references. Published graph members, committed artifacts and audit records have immutability protections.
+
+`Metadata` provides authenticated scope checks, compiled-definition persistence, publication, run creation, task enumeration/sealing, leases, heartbeat, retries, usage recording and atomic artifact/checkpoint publication. `define` accepts a compiled `Workflow`. Artifact descriptors are snapshotted before asynchronous verification. An identical commit retry can recover its durable receipt without rereading unavailable artifact storage. Changed idempotency payloads and expired/fenced attempts fail.
+
+`Postgres.local` is the real `pg` pool adapter, restricted to explicit loopback endpoints. `Files` verifies local artifact bytes against size/checksum under a storage root; it does not fetch network URIs. `Metadata.transaction` composes authorized operations with registry SQL in one transaction. Raw SQL access remains trusted application/migration authority; this library is not an authenticated public server or a complete database-role/RLS deployment.
+
+The handoff's complete test run passed all **11 metadata tests**, executing actual PostgreSQL through PGlite and actual synthetic local artifacts. Coverage includes scoped foreign keys, graph publication, immutable history, lease expiration/fencing, retry accounting, idempotency, checksum and quality-gate rejection, rollback, audit chaining, task enumeration closure, compiled definition persistence and caller mutation during verification. This does not establish separate-server, multi-process or production-load behavior.
+
+The pure-JSON provisioning service and durable workflow worker discussed during development were not created. The compiler/local runner and this metadata service still require full orchestration/resource-provisioning integration. No production PostgreSQL service was provisioned or corpus moved. See `HANDOFF.md` for remaining work and full-suite failures.

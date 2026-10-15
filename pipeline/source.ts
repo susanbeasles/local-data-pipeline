@@ -21,14 +21,12 @@ export type Source = {
   reason?: string;
   format?: string;
   normalizedHash?: string;
+  content?: { hash: string; kind: "file" | "symlink" };
   chunkFile?: string;
   chunkHash?: string;
   chunks: Chunk[];
 };
-export async function* discover(
-  root: string,
-  dir = root,
-): AsyncGenerator<string> {
+export async function* discover(root: string, dir = root): AsyncGenerator<string> {
   const entries = [];
   for await (const e of await opendir(dir)) entries.push(e);
   entries.sort((a, b) => a.name.localeCompare(b.name, "en"));
@@ -77,8 +75,7 @@ export async function source(
         binary ||=
           b.includes(0) ||
           (bytes === 0 &&
-            (b.subarray(0, 4).toString() === "%PDF" ||
-              b.subarray(0, 2).toString() === "PK"));
+            (b.subarray(0, 4).toString() === "%PDF" || b.subarray(0, 2).toString() === "PK"));
       }
       h.update(b);
       bytes += b.length;
@@ -90,11 +87,7 @@ export async function source(
     await f.close();
   }
   const after = await lstat(path);
-  if (
-    after.ino !== info.ino ||
-    after.size !== info.size ||
-    after.mtimeMs !== info.mtimeMs
-  ) {
+  if (after.ino !== info.ino || after.size !== info.size || after.mtimeMs !== info.mtimeMs) {
     row.state = "invalid";
     row.reason = "source changed during extraction";
     return row;
@@ -106,8 +99,7 @@ export async function source(
   }
   if (bytes > maxBytes) {
     row.state = "failed";
-    row.reason =
-      "source memory budget exceeded; increase maxBytes or provide streaming extractor";
+    row.reason = "source memory budget exceeded; increase maxBytes or provide streaming extractor";
     return row;
   }
   const raw = Buffer.concat(blocks);

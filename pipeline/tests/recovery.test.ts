@@ -43,15 +43,10 @@ test("explicit resume retries exhausted failures with a fresh bounded budget and
     readOnly: true,
   });
   assert.equal(
-    db
-      .prepare("SELECT count(*) total FROM attempts WHERE state='failed'")
-      .get()!.total,
+    db.prepare("SELECT count(*) total FROM attempts WHERE state='failed'").get()!.total,
     1,
   );
-  assert.equal(
-    db.prepare("SELECT max(attempt) latest FROM attempts").get()!.latest,
-    2,
-  );
+  assert.equal(db.prepare("SELECT max(attempt) latest FROM attempts").get()!.latest, 2);
   db.close();
 });
 test("SIGKILL leaves durable running attempt, restart recovers it exactly once", async () => {
@@ -94,8 +89,7 @@ test("concurrent runs exclude each other; scheduler bounds active work", async (
     input = join(root, "input"),
     work = join(root, "work");
   await mkdir(input);
-  for (let i = 0; i < 10; i++)
-    await writeFile(join(input, i + ".txt"), "hello");
+  for (let i = 0; i < 10; i++) await writeFile(join(input, i + ".txt"), "hello");
   let active = 0,
     peak = 0;
   let started!: () => void;
@@ -117,7 +111,7 @@ test("concurrent runs exclude each other; scheduler bounds active work", async (
   assert.equal(report.completed, 10);
   assert.equal(peak, 2);
 });
-test("source/staging hashes and missing results cannot reconcile as complete", async () => {
+test("normalized source hashes cannot reconcile as complete after database corruption", async () => {
   const root = await mkdtemp(join(tmpdir(), "hash-test-")),
     input = join(root, "input"),
     work = join(root, "work");
@@ -128,12 +122,9 @@ test("source/staging hashes and missing results cannot reconcile as complete", a
     facts: [],
     unknowns: [],
   }));
-  const stage = join(
-    work,
-    "staging",
-    (await readdir(join(work, "staging")))[0],
-  );
-  await writeFile(stage, "{}");
+  const db = new DatabaseSync(join(work, "state/pipeline.sqlite"));
+  db.exec("UPDATE source_data SET body=json_set(body,'$.hash','corrupt')");
+  db.close();
   assert.equal((await verify(work)).integrity, false);
 });
 test("empty lock file is recoverable and kernel lock releases after interruption", async () => {

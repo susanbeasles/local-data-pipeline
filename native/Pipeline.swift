@@ -157,12 +157,12 @@ struct ControlView: View {
     @Environment(\.openWindow) private var openWindow
     var body: some Scene {
         MenuBarExtra("Pipeline", systemImage: "point.3.connected.trianglepath.dotted") {
-            Text(panel.partition).font(.headline)
+            Text("Processing instance · "+panel.partition).font(.headline)
             Text(panel.alive ? "Running · \(panel.phase)" : panel.phase)
-            Button("Open control panel") { openWindow(id: "control"); NSApp.activate(ignoringOtherApps: true) }
+            Button("Open data workspace") { openWindow(id: "control"); NSApp.activate(ignoringOtherApps: true) }
             Button("Refresh") { Task { await panel.call("status") } }
             Divider(); Button("Quit panel") { NSApp.terminate(nil) }
         }
-        WindowGroup("Pipeline", id: "control") { ControlView(panel: panel) }.defaultSize(width: 960, height: 660)
+        WindowGroup("Pipeline", id: "control") { StudioView(panel: panel) }.defaultSize(width: 1280, height: 820)
     }
 }

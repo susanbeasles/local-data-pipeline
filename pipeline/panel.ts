@@ -1,3 +1,4 @@
+import { receipt } from "./records.ts";
 import { readFile, open, realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -142,25 +143,22 @@ export async function sample(config: Panel, role: string, offset = 0) {
     ["reconcile", "connect"].includes(role) ? "graph.sqlite" : "pipeline.sqlite",
   );
   const db = new DatabaseSync(database, { readOnly: true });
-  let row;
   try {
     db.exec("PRAGMA busy_timeout=1000");
-    row = db
+    const row = db
       .prepare(
-        "SELECT id,output,outputHash FROM jobs WHERE role=? AND state='completed' ORDER BY rowid LIMIT 1 OFFSET ?",
+        "SELECT id,outputHash FROM jobs WHERE role=? AND state='completed' ORDER BY rowid LIMIT 1 OFFSET ?",
       )
       .get(role, offset);
+    if (!row) return { available: false, reason: "No completed output for this stage yet" };
+    return {
+      available: true,
+      id: row.id,
+      receipt: receipt(db, String(row.id), String(row.outputHash), 2 * 1024 * 1024),
+    };
   } finally {
     db.close();
   }
-  if (!row?.output) return { available: false, reason: "No completed output for this stage yet" };
-  const path = await realpath(String(row.output));
-  if (!path.startsWith(work + sep) || (await stat(path)).size > 2 * 1024 * 1024)
-    throw Error("sample outside work or exceeds 2 MiB");
-  const data = await readFile(path);
-  if (data.length > 2 * 1024 * 1024 || hash(data) !== row.outputHash)
-    throw Error("sample integrity mismatch");
-  return { available: true, id: row.id, receipt: JSON.parse(data.toString("utf8")) };
 }
 type ProcessInfo = Awaited<ReturnType<typeof processes>>[number];
 type Owner = { pid: number; birth: string; command: string; group: number; members: ProcessInfo[] };

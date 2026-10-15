@@ -1,13 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  mkdir,
-  writeFile,
-  readFile,
-  readdir,
-  symlink,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, verify } from "../run.ts";
@@ -58,10 +51,7 @@ test("end to end lossless chunks, retries, duplicates, unsupported and restart",
   const staged = JSON.parse(
     await readFile(join(f.work, "staging", first.sources[0] + ".json"), "utf8"),
   );
-  assert.equal(
-    staged.chunks.map((c: any) => c.text).join(""),
-    text.replaceAll("\r\n", "\n"),
-  );
+  assert.equal(staged.chunks.map((c: any) => c.text).join(""), text.replaceAll("\r\n", "\n"));
 });
 test("input overlap, malformed JSONL, exhaustion and evidence are rejected", async () => {
   const f = await fixture();
@@ -87,9 +77,10 @@ test("corrupt outputs and modified source invalidate completion", async () => {
   await writeFile(join(f.input, "a.txt"), "hello");
   const infer = async () => ({ summary: "hello", facts: [], unknowns: [] });
   await run({ ...f, ...config }, infer);
-  const output = join(f.work, "output");
-  const file = (await readdir(output)).find((n) => n.endsWith(".json"))!;
-  await writeFile(join(output, file), "{}");
+  const { Store } = await import("../store.ts");
+  const db = new Store(join(f.work, "state/pipeline.sqlite"));
+  db.db.exec("UPDATE results SET body=json_set(body,'$.result.summary','corrupt')");
+  db.close();
   assert.equal((await verify(f.work)).integrity, false);
   const r = await run({ ...f, ...config }, infer);
   assert.equal(r.integrity, true);
@@ -131,16 +122,14 @@ test("deterministic chunk JSONL is complete and independently parseable", async 
     facts: [],
     unknowns: [],
   }));
-  const records = (
-    await readFile(join(f.work, "staging", r.sources[0] + ".jsonl"), "utf8")
-  )
+  const records = (await readFile(join(f.work, "staging", r.sources[0] + ".jsonl"), "utf8"))
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
   assert.equal(records.map((c) => c.text).join(""), "hello\nworld");
   assert.equal(records[0].sourceHash.length, 64);
 });
-test("unexpected output artifacts do not pass reconciliation", async () => {
+test("unexpected exports are diagnosed separately from authoritative SQLite data", async () => {
   const f = await fixture();
   await writeFile(join(f.input, "text"), "hello");
   await run({ ...f, ...config }, async () => ({
@@ -149,7 +138,9 @@ test("unexpected output artifacts do not pass reconciliation", async () => {
     unknowns: [],
   }));
   await writeFile(join(f.work, "output", "duplicate.json"), "{}");
-  assert.equal((await verify(f.work)).integrity, false);
+  const report = await verify(f.work);
+  assert.ok(report.integrity);
+  assert.ok(report.exportErrors.includes("untracked-output:duplicate.json"));
 });
 test("missing scheduled chunk cannot pass coverage", async () => {
   const f = await fixture();
@@ -161,9 +152,7 @@ test("missing scheduled chunk cannot pass coverage", async () => {
   }));
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(join(f.work, "state", "pipeline.sqlite"));
-  db.prepare(
-    "DELETE FROM jobs WHERE id IN (SELECT id FROM jobs LIMIT 1)",
-  ).run();
+  db.prepare("DELETE FROM jobs WHERE id IN (SELECT id FROM jobs LIMIT 1)").run();
   db.close();
   assert.equal((await verify(f.work)).integrity, false);
 });

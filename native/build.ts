@@ -1,20 +1,34 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile, readFile, realpath } from "node:fs/promises";
+import { mkdir, writeFile, readFile, realpath, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { Release } from "../pipeline/release.ts";
 const config = resolve(process.argv[2] ?? "");
 if (!process.argv[2]) throw Error("Usage: node native/build.ts /absolute/panel.json");
 const settings = JSON.parse(await readFile(config, "utf8"));
 if (!settings.managed) throw Error("Prepare the managed instance before building the app");
 const root = resolve(import.meta.dirname, ".."),
   app = join(root, "dist/Pipeline.app");
+const studioConfig = process.argv[3] ? await realpath(resolve(process.argv[3])) : undefined;
+let studioScript: string | undefined;
+if (studioConfig) {
+  const releases = join(homedir(), "Library/Application Support/Local Data Pipeline/control-releases");
+  await mkdir(releases, { recursive: true, mode: 0o700 });
+  const release = await Release.create(root, join(releases, randomUUID()), { revision: "studio-control", panel: config, studio: studioConfig });
+  studioScript = join(release.root, "payload/pipeline/studio.ts");
+}
 await mkdir(join(app, "Contents/MacOS"), { recursive: true });
 await mkdir(join(app, "Contents/Resources"), { recursive: true });
+const cache=join(root,'dist/SwiftCache');
+await mkdir(cache,{recursive:true});
 await promisify(execFile)("/usr/bin/swiftc", [
   "-parse-as-library",
+  "-module-cache-path",cache,
   "-target",
   "arm64-apple-macosx14.0",
-  join(root, "native/Pipeline.swift"),
+  ...(await readdir(join(root, "native"))).filter(name => name.endsWith(".swift")).sort().map(name => join(root, "native", name)),
   "-o",
   join(app, "Contents/MacOS/Pipeline"),
 ]);
@@ -28,6 +42,8 @@ await writeFile(
     node: await realpath(process.execPath),
     script: join(settings.managed, "payload/pipeline/panel.ts"),
     config,
+    studioScript,
+    studioConfig,
   }),
 );
 console.log(JSON.stringify({ app, launch: ["open", app] }));

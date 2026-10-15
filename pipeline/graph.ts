@@ -1,8 +1,8 @@
 import { review, type Receipt } from "./review.ts";
-import { readFile, mkdir, open, rename, statfs } from "node:fs/promises";
+import { mkdir, open, rename, statfs } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
-import { Store, atomic, hash } from "./store.ts";
+import { Store, atomic, hash, exportRecord } from "./store.ts";
 import { fileHash } from "./seal.ts";
 import { Jobs } from "./jobs.ts";
 import { validRole, type Payload, type Role } from "./roles.ts";
@@ -29,10 +29,7 @@ async function intact(path: string, digest: string) {
     return false;
   }
 }
-async function jsonl(
-  path: string,
-  rows: Iterable<unknown> | AsyncIterable<unknown>,
-) {
+async function jsonl(path: string, rows: Iterable<unknown> | AsyncIterable<unknown>) {
   await mkdir(dirname(path), { recursive: true });
   const temp = path + "." + randomUUID() + ".tmp",
     f = await open(temp, "wx", 0o600),
@@ -68,29 +65,23 @@ export async function graph(config: Config, infer: Inference) {
  CREATE TABLE IF NOT EXISTS candidates(id TEXT PRIMARY KEY,first TEXT NOT NULL,second TEXT NOT NULL,inputHash TEXT NOT NULL,generation TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS entity_generation ON entities(generation,id);CREATE INDEX IF NOT EXISTS pair_generation ON candidates(generation,id);`);
   try {
+    core.records.assertReady();
+    store.records.assertReady();
     const signatures: string[] = [];
     for (const row of core.db
       .prepare(
         "SELECT * FROM jobs WHERE role='knowledge' AND state='completed' ORDER BY source,chunk",
       )
       .all()) {
-      if (!(await intact(String(row.output), String(row.outputHash))))
+      if (!core.records.intact(String(row.id), String(row.outputHash)))
         throw Error("knowledge output integrity mismatch");
-      const receipt = JSON.parse(await readFile(String(row.output), "utf8"));
+      const receipt = core.records.result(String(row.id), String(row.outputHash));
       if (!validRole("knowledge", receipt.result, receipt.payload))
         throw Error("invalid knowledge producer");
       const refs = new Map<string, string>(
         receipt.result.entities.map((e: any) => [
           e.id,
-          hash(
-            [
-              "entity",
-              receipt.source,
-              receipt.sourceHash,
-              receipt.chunk,
-              e.id,
-            ].join(":"),
-          ),
+          hash(["entity", receipt.source, receipt.sourceHash, receipt.chunk, e.id].join(":")),
         ]),
       );
       const names = new Map<string, string>(
@@ -98,13 +89,7 @@ export async function graph(config: Config, infer: Inference) {
       );
       for (const entity of receipt.result.entities) {
         const id = hash(
-          [
-            "entity",
-            receipt.source,
-            receipt.sourceHash,
-            receipt.chunk,
-            entity.id,
-          ].join(":"),
+          ["entity", receipt.source, receipt.sourceHash, receipt.chunk, entity.id].join(":"),
         );
         const claims = receipt.result.claims
           .filter((c: any) => c.subject === entity.id)
@@ -128,8 +113,7 @@ export async function graph(config: Config, infer: Inference) {
           sourceHash: receipt.sourceHash,
           chunk: receipt.chunk,
           anchorId,
-          start: receipt.evidence.anchors.find((a: any) => a.id === anchorId)
-            .start,
+          start: receipt.evidence.anchors.find((a: any) => a.id === anchorId).start,
           end: receipt.evidence.anchors.find((a: any) => a.id === anchorId).end,
           text: receipt.payload.spans.find((s: any) => s.id === anchorId).text,
         }));
@@ -166,10 +150,7 @@ export async function graph(config: Config, infer: Inference) {
     store.transaction(() => {
       for (const signature of signatures) {
         const id = signature.slice(0, 64);
-        db.prepare("UPDATE entities SET generation=? WHERE id=?").run(
-          generation,
-          id,
-        );
+        db.prepare("UPDATE entities SET generation=? WHERE id=?").run(generation, id);
       }
     });
     await phase(config.work, "candidates", "running", generation);
@@ -178,9 +159,7 @@ export async function graph(config: Config, infer: Inference) {
       .prepare("SELECT * FROM entities WHERE generation=? ORDER BY id")
       .iterate(generation)) {
       for (const second of db
-        .prepare(
-          "SELECT * FROM entities WHERE generation=? AND id>? ORDER BY id",
-        )
+        .prepare("SELECT * FROM entities WHERE generation=? AND id>? ORDER BY id")
         .iterate(generation, first.id)) {
         const id = hash(["pair", generation, first.id, second.id].join(":")),
           inputHash = hash(String(first.hash) + ":" + String(second.hash));
@@ -220,30 +199,24 @@ export async function graph(config: Config, infer: Inference) {
       db.prepare(
         "UPDATE jobs SET state='pending',error='recovered interrupted graph attempt' WHERE state='running'",
       ).run();
-      db.prepare(
-        "UPDATE attempts SET state='interrupted' WHERE state='running'",
-      ).run();
+      db.prepare("UPDATE attempts SET state='interrupted' WHERE state='running'").run();
     });
     for (const job of db
       .prepare("SELECT * FROM jobs WHERE config=? AND state='completed'")
       .all(generation))
-      if (!(await intact(String(job.output), String(job.outputHash))))
+      if (!store.records.intact(String(job.id), String(job.outputHash)))
         db.prepare(
           "UPDATE jobs SET state='pending',error='graph output integrity mismatch' WHERE id=?",
         ).run(job.id);
     for (const job of db
-      .prepare(
-        "SELECT * FROM jobs WHERE config=? AND role='reconcile' AND state!='completed'",
-      )
+      .prepare("SELECT * FROM jobs WHERE config=? AND role='reconcile' AND state!='completed'")
       .all(generation))
       db.prepare(
         "UPDATE jobs SET state='pending',error='reconciliation invalidated' WHERE source=? AND role='connect' AND state='completed'",
       ).run(job.source);
     const ceilings = new Map(
       db
-        .prepare(
-          "SELECT id,attempt FROM jobs WHERE config=? AND state!='completed'",
-        )
+        .prepare("SELECT id,attempt FROM jobs WHERE config=? AND state!='completed'")
         .all(generation)
         .map((j) => [String(j.id), Number(j.attempt) + config.attempts]),
     );
@@ -268,9 +241,7 @@ export async function graph(config: Config, infer: Inference) {
         await phase(config.work, role, "running", generation);
         for (;;) {
           for (const j of db
-            .prepare(
-              "SELECT id,attempt FROM jobs WHERE config=? AND role=? AND state!='completed'",
-            )
+            .prepare("SELECT id,attempt FROM jobs WHERE config=? AND role=? AND state!='completed'")
             .all(generation, role))
             ceilings.set(String(j.id), Number(j.attempt) + config.attempts);
           const jobs = new Jobs(store, config.concurrency, role, generation);
@@ -279,9 +250,7 @@ export async function graph(config: Config, infer: Inference) {
               const job = jobs.claim();
               if (!job) return;
               // Archived jobs are not scheduled in a new generation.
-              const meta = db
-                .prepare("SELECT config FROM jobs WHERE id=?")
-                .get(job.id)!;
+              const meta = db.prepare("SELECT config FROM jobs WHERE id=?").get(job.id)!;
               if (meta.config !== generation) {
                 store.transaction(() => {
                   db.prepare(
@@ -295,24 +264,14 @@ export async function graph(config: Config, infer: Inference) {
               }
               active++;
               try {
-                const pair = db
-                  .prepare("SELECT * FROM candidates WHERE id=?")
-                  .get(job.source)!;
+                const pair = db.prepare("SELECT * FROM candidates WHERE id=?").get(job.source)!;
                 const members = [pair.first, pair.second].map(
                   (id) =>
                     JSON.parse(
-                      String(
-                        db
-                          .prepare("SELECT body FROM entities WHERE id=?")
-                          .get(id)!.body,
-                      ),
+                      String(db.prepare("SELECT body FROM entities WHERE id=?").get(id)!.body),
                     ) as Entity,
                 );
-                if (
-                  hash(
-                    members.map((m) => hash(JSON.stringify(m))).join(":"),
-                  ) !== pair.inputHash
-                )
+                if (hash(members.map((m) => hash(JSON.stringify(m))).join(":")) !== pair.inputHash)
                   throw Error("candidate producer hash mismatch");
                 const evidence = members
                   .flatMap((m) => m.evidence)
@@ -326,20 +285,16 @@ export async function graph(config: Config, infer: Inference) {
                 const prior: Record<string, unknown> = {};
                 if (role === "connect") {
                   const parent = db
-                    .prepare(
-                      "SELECT * FROM jobs WHERE source=? AND role='reconcile'",
-                    )
+                    .prepare("SELECT * FROM jobs WHERE source=? AND role='reconcile'")
                     .get(job.source)!;
                   if (
                     parent.state !== "completed" ||
-                    !(await intact(
-                      String(parent.output),
-                      String(parent.outputHash),
-                    ))
+                    !store.records.intact(String(parent.id), String(parent.outputHash))
                   )
                     throw Error("upstream reconciliation unavailable");
-                  prior.reconcile = JSON.parse(
-                    await readFile(String(parent.output), "utf8"),
+                  prior.reconcile = store.records.result(
+                    String(parent.id),
+                    String(parent.outputHash),
                   ).result;
                 }
                 const payload: Payload = {
@@ -350,8 +305,7 @@ export async function graph(config: Config, infer: Inference) {
                   context: {
                     trustedNamespace: config.enrichment!.namespace,
                     candidates: { members, evidence },
-                    independentEvidence:
-                      members[0].sourceHash !== members[1].sourceHash,
+                    independentEvidence: members[0].sourceHash !== members[1].sourceHash,
                   },
                   prior,
                 };
@@ -372,8 +326,19 @@ export async function graph(config: Config, infer: Inference) {
                   } as any,
                   payload,
                 };
+                await store.commit(() =>
+                  store.records.attempt(job.id, job.attempt, { request, model: config.model }),
+                );
                 const result = await infer(request);
-                await atomic(
+                await store.commit(() =>
+                  store.records.attempt(job.id, job.attempt, {
+                    request,
+                    model: config.model,
+                    result,
+                    inference: proof(result),
+                  }),
+                );
+                await exportRecord(
                   join(
                     config.work,
                     "state",
@@ -392,14 +357,8 @@ export async function graph(config: Config, infer: Inference) {
                 );
                 if (!validRole(role, result, payload))
                   throw Error("invalid graph role response/evidence");
-                const output = join(
-                  config.work,
-                  "state",
-                  "graph",
-                  "results",
-                  job.id + ".json",
-                );
-                await atomic(output, {
+                const output = join(config.work, "state", "graph", "results", job.id + ".json");
+                const receipt = {
                   job: job.id,
                   candidate: job.source,
                   inputHash: pair.inputHash,
@@ -410,34 +369,44 @@ export async function graph(config: Config, infer: Inference) {
                   attempt: job.attempt,
                   payload,
                   result,
-                });
-                const digest = await fileHash(output);
+                };
+                const digest = hash(JSON.stringify(receipt) + "\n");
                 await store.commit(() => {
-                  db.prepare(
-                    "INSERT OR REPLACE INTO artifacts VALUES(?,?,?)",
-                  ).run(output, digest, job.id);
+                  if (store.records.write(String(job.id), receipt) !== digest)
+                    throw Error("SQLite/export serialization mismatch");
+                  db.prepare("INSERT OR REPLACE INTO artifacts VALUES(?,?,?)").run(
+                    output,
+                    digest,
+                    job.id,
+                  );
                   db.prepare(
                     "UPDATE jobs SET state='completed',output=?,outputHash=?,error=NULL WHERE id=?",
                   ).run(output, digest, job.id);
-                  db.prepare(
-                    "UPDATE attempts SET state='completed' WHERE job=? AND attempt=?",
-                  ).run(job.id, job.attempt);
+                  db.prepare("UPDATE attempts SET state='completed' WHERE job=? AND attempt=?").run(
+                    job.id,
+                    job.attempt,
+                  );
                 });
+                await exportRecord(output, receipt);
               } catch (e) {
                 const fatal = e instanceof WorkerFailure;
                 if (fatal) aborted = true;
                 store.transaction(() => {
+                  store.records.failure(
+                    String(job.id),
+                    job.attempt,
+                    e,
+                    (e as any)?.partial,
+                    (e as any)?.outputTokens,
+                  );
                   db.prepare("UPDATE jobs SET state=?,error=? WHERE id=?").run(
-                    fatal ||
-                      job.attempt < (ceilings.get(job.id) ?? config.attempts)
+                    fatal || job.attempt < (ceilings.get(job.id) ?? config.attempts)
                       ? "pending"
                       : "failed",
                     String(e),
                     job.id,
                   );
-                  db.prepare(
-                    "UPDATE attempts SET state=?,error=? WHERE job=? AND attempt=?",
-                  ).run(
+                  db.prepare("UPDATE attempts SET state=?,error=? WHERE job=? AND attempt=?").run(
                     fatal ? "interrupted" : "failed",
                     String(e),
                     job.id,
@@ -464,8 +433,7 @@ export async function graph(config: Config, infer: Inference) {
             config.resume,
             generation,
           );
-          if (decision === "reject")
-            throw Error("Review rejected stage: " + role);
+          if (decision === "reject") throw Error("Review rejected stage: " + role);
           if (decision === "approve") break;
           store.transaction(() =>
             db
@@ -480,17 +448,15 @@ export async function graph(config: Config, infer: Inference) {
       clearInterval(timer);
     }
     const errors: string[] = [];
-    for (const job of db
-      .prepare("SELECT * FROM jobs WHERE config=?")
-      .all(generation)) {
+    for (const job of db.prepare("SELECT * FROM jobs WHERE config=?").all(generation)) {
       if (
         job.state !== "completed" ||
-        !(await intact(String(job.output), String(job.outputHash)))
+        !store.records.intact(String(job.id), String(job.outputHash))
       ) {
         errors.push("graph-job:" + job.id);
         continue;
       }
-      const receipt = JSON.parse(await readFile(String(job.output), "utf8"));
+      const receipt = store.records.result(String(job.id), String(job.outputHash));
       if (
         receipt.job !== job.id ||
         receipt.configHash !== generation ||
@@ -510,75 +476,75 @@ export async function graph(config: Config, infer: Inference) {
       generation,
       entities: signatures.length,
       candidates: pairs,
-      policy:
-        "all unordered entity occurrence pairs; original entities/evidence retained",
+      policy: "all unordered entity occurrence pairs; original entities/evidence retained",
       jobs: Number(stats.jobs),
       completed: Number(stats.completed ?? 0),
       failed: Number(stats.failed ?? 0),
       pending: Number(stats.pending ?? 0),
       errors,
+      exportErrors: [] as string[],
       integrity: errors.length === 0,
     };
     if (report.integrity) {
-      function* entities() {
-        for (const row of db
-          .prepare("SELECT body FROM entities WHERE generation=? ORDER BY id")
-          .iterate(generation))
-          yield JSON.parse(String(row.body));
-      }
-      const entityFile = await jsonl(
-        join(config.work, "output", "entities.jsonl"),
-        entities(),
-      );
-      async function* results(role: Role, key: string) {
-        for (const row of db
-          .prepare(
-            "SELECT output FROM jobs WHERE config=? AND role=? ORDER BY id",
-          )
-          .iterate(generation, role)) {
-          const receipt = JSON.parse(
-            await readFile(String(row.output), "utf8"),
-          );
-          for (const value of receipt.result[key])
-            yield {
-              ...value,
-              candidate: receipt.candidate,
-              producer: {
-                job: receipt.job,
-                model: receipt.model,
-                attempt: receipt.attempt,
-              },
-            };
+      try {
+        function* entities() {
+          for (const row of db
+            .prepare("SELECT body FROM entities WHERE generation=? ORDER BY id")
+            .iterate(generation))
+            yield JSON.parse(String(row.body));
         }
+        const entityFile = await jsonl(join(config.work, "output", "entities.jsonl"), entities());
+        async function* results(role: Role, key: string) {
+          for (const row of db
+            .prepare("SELECT id,outputHash FROM jobs WHERE config=? AND role=? ORDER BY id")
+            .iterate(generation, role)) {
+            const receipt = store.records.result(String(row.id), String(row.outputHash));
+            for (const value of receipt.result[key])
+              yield {
+                ...value,
+                candidate: receipt.candidate,
+                producer: {
+                  job: receipt.job,
+                  model: receipt.model,
+                  attempt: receipt.attempt,
+                },
+              };
+          }
+        }
+        const groupFile = await jsonl(
+            join(config.work, "output", "groups.jsonl"),
+            results("reconcile", "groups"),
+          ),
+          edgeFile = await jsonl(
+            join(config.work, "output", "edges.jsonl"),
+            results("connect", "edges"),
+          );
+        await atomic(join(config.work, "output", "graph.json"), {
+          ...report,
+          entities: entityFile,
+          groups: groupFile,
+          edges: edgeFile,
+        });
+        for (const file of [
+          entityFile,
+          groupFile,
+          edgeFile,
+          {
+            path: join(config.work, "output", "graph.json"),
+            hash: await fileHash(join(config.work, "output", "graph.json")),
+          },
+        ])
+          core.transaction(() =>
+            core.db
+              .prepare("INSERT OR REPLACE INTO artifacts VALUES(?,?,?)")
+              .run(file.path, file.hash, "graph"),
+          );
+      } catch (error) {
+        report.exportErrors.push(String(error));
+        console.error(
+          JSON.stringify({ type: "export-failed", kind: "graph", error: String(error) }),
+        );
       }
-      const groupFile = await jsonl(
-          join(config.work, "output", "groups.jsonl"),
-          results("reconcile", "groups"),
-        ),
-        edgeFile = await jsonl(
-          join(config.work, "output", "edges.jsonl"),
-          results("connect", "edges"),
-        );
-      await atomic(join(config.work, "output", "graph.json"), {
-        ...report,
-        entities: entityFile,
-        groups: groupFile,
-        edges: edgeFile,
-      });
-      for (const file of [
-        entityFile,
-        groupFile,
-        edgeFile,
-        {
-          path: join(config.work, "output", "graph.json"),
-          hash: await fileHash(join(config.work, "output", "graph.json")),
-        },
-      ])
-        core.transaction(() =>
-          core.db
-            .prepare("INSERT OR REPLACE INTO artifacts VALUES(?,?,?)")
-            .run(file.path, file.hash, "graph"),
-        );
     }
     await atomic(join(config.work, "state", "graph-report.json"), report);
     return report;

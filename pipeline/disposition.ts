@@ -1,24 +1,16 @@
-import { join, dirname } from "node:path";
-import { mkdir, open, rename } from "node:fs/promises";
-import { randomUUID, createHash } from "node:crypto";
-import { Store } from "./store.ts";
+import { join } from "node:path";
+import { Store, publish } from "./store.ts";
 import type { Config } from "./run.ts";
 export async function disposition(
   config: Config,
   relations: { generation?: string; integrity: boolean },
 ) {
   const core = new Store(join(config.work, "state", "pipeline.sqlite")),
-    graph = relations.generation
-      ? new Store(join(config.work, "state", "graph.sqlite"))
-      : null;
+    graph = relations.generation ? new Store(join(config.work, "state", "graph.sqlite")) : null;
   core.db.exec(
     "CREATE TABLE IF NOT EXISTS dispositions(id TEXT PRIMARY KEY,sourceHash TEXT,state TEXT NOT NULL,model TEXT NOT NULL,body TEXT NOT NULL)",
   );
   const path = join(config.work, "output", "files.jsonl");
-  await mkdir(dirname(path), { recursive: true });
-  const temp = path + "." + randomUUID() + ".tmp",
-    f = await open(temp, "wx", 0o600),
-    digest = createHash("sha256");
   const counts: Record<string, number> = {
     completed: 0,
     failed: 0,
@@ -29,9 +21,7 @@ export async function disposition(
   };
   let count = 0;
   try {
-    for (const source of core.db
-      .prepare("SELECT * FROM sources ORDER BY path")
-      .iterate()) {
+    for (const source of core.db.prepare("SELECT * FROM sources ORDER BY path").iterate()) {
       let state = String(source.state),
         proof: any = { candidates: 0, completed: 0, failed: 0, pending: 0 };
       if (state === "completed") {
@@ -42,11 +32,7 @@ export async function disposition(
             )
             .get(relations.generation!, source.id, source.id)!;
           if (Number(proof.failed ?? 0) > 0) state = "failed";
-          else if (
-            Number(proof.completed ?? 0) !==
-            Number(proof.candidates) * 2
-          )
-            state = "pending";
+          else if (Number(proof.completed ?? 0) !== Number(proof.candidates) * 2) state = "pending";
         } else state = "pending";
       }
       const chunks = core.db
@@ -66,15 +52,10 @@ export async function disposition(
           ...proof,
           generation: relations.generation,
           disposition:
-            Number(proof.candidates) === 0
-              ? "no entity-pair candidates"
-              : "adjudicated pairs",
+            Number(proof.candidates) === 0 ? "no entity-pair candidates" : "adjudicated pairs",
         },
       };
-      const text = JSON.stringify(row),
-        line = text + "\n";
-      await f.writeFile(line);
-      digest.update(line);
+      const text = JSON.stringify(row);
       count++;
       counts[state]++;
       core.transaction(() =>
@@ -83,26 +64,29 @@ export async function disposition(
           .run(source.id, source.hash, state, config.model, text),
       );
     }
-    await f.sync();
-    await f.close();
-    await rename(temp, path);
-    const directory = await open(dirname(path), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
+    let hash: string | null = null;
+    const exportErrors: string[] = [];
+    function* rows() {
+      for (const row of core.db
+        .prepare("SELECT d.body FROM dispositions d JOIN sources s ON s.id=d.id ORDER BY s.path")
+        .iterate())
+        yield String(row.body) + "\n";
     }
-    const hash = digest.digest("hex");
-    core.transaction(() =>
-      core.db
-        .prepare("INSERT OR REPLACE INTO artifacts VALUES(?,?,?)")
-        .run(path, hash, "enrichment"),
-    );
-    return { path, hash, count, counts };
-  } finally {
     try {
-      await f.close();
-    } catch {}
+      hash = await publish(path, rows());
+      core.transaction(() =>
+        core.db
+          .prepare("INSERT OR REPLACE INTO artifacts VALUES(?,?,?)")
+          .run(path, hash!, "enrichment"),
+      );
+    } catch (error) {
+      exportErrors.push(String(error));
+      console.error(
+        JSON.stringify({ type: "export-failed", kind: "disposition", error: String(error) }),
+      );
+    }
+    return { path, hash, count, counts, exportErrors };
+  } finally {
     graph?.close();
     core.close();
   }

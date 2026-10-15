@@ -1,0 +1,6 @@
+{
+  "work": "/absolute/local/intake-instance",
+  "cloudId": "your-atlassian-cloud-id",
+  "projects": ["PROJECT"],
+  "spaces": ["123456"]
+}

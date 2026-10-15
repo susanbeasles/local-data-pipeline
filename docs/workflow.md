@@ -1,0 +1,39 @@
+# Immutable workflow core
+
+`pipeline/workflow.ts` provides versioned registries, graph publication and a local DAG runner. It is separate from the existing six-stage engine in `pipeline/graph.ts`.
+
+`Registry.registerContract`, `registerResource`, `registerAdapter` and `registerType` return immutable references containing an ID, positive integer version and SHA-256 digest. A version cannot be rebound inside its workspace. Resource digests cover their JSON content, scope and kind; adapter references cover their host-attested artifact digest, scope and capabilities. The trusted host must verify that an adapter artifact actually corresponds to the handler it registers. The core never imports, evaluates or executes code from a definition, prompt, resource, model response or registry manifest.
+
+`Workflow.publish(definition, registry, policy)` validates and freezes a JSON definition, returns its digest and compiles its stages and steps into a deterministic topological plan. Arrays of graph entities are normalized by stable ID before hashing. `workflow.release` is `{format: "workflow-release/1", definition, digest, plan}`. `Workflow.open(release, registry, policy)` verifies both the definition digest and the recomputed plan. Caller mutations cannot change a published definition, registry entry or run result.
+
+Definitions contain scoped ownership, stages, step instances, typed edges and resource budgets. A step binds a registered step-type reference, JSON configuration, explicit resource pins and a stage. Step types declare their configuration schema, executor reference, capabilities, input/output contracts and permitted resource binding names/kinds. Adding an operation registers a new handler and step type; compiler and runner dispatch do not need modification. Schema validation uses the existing `profile.ts` subset: explicit closed objects, arrays, strings, numbers, integers, booleans, enums and supported bounds. Unsupported schema constructs fail validation.
+
+Publication rejects unresolved or forged version references, malformed IDs, duplicate graph identities/routes, unknown stages/endpoints, missing required inputs/pins, incompatible contracts, invalid configurations, undeclared pins, unknown capabilities, capability concealment, excessive budgets and cycles. Cross-stage edges are allowed, but the derived stage graph must also be acyclic because this local runner treats stages as execution boundaries. Port compatibility requires exactly the same pinned contract version; conversion or selection requires an explicit registered step. A `many` output cannot directly feed a `one` input.
+
+The trusted host supplies `Policy`; workflow JSON must not choose its own production authority. References must share the authorized workspace. Project/owner differences within that workspace require exact immutable grants. Dataset bindings require `data.read`; artifact/schema/connection bindings require `resource.read`; model, prompt and rule bindings require `model.invoke`, `prompt.read` and `rule.read`. Adapter capabilities must be declared by the step type and permitted by policy. Prompt contents cannot grant capabilities. The core does not resolve connection credentials or access paths/URLs from resource bodies.
+
+`registry.manifest()` exports a JSON registry catalog. `Registry.open(manifest, trustedRegistry)` restores metadata and resolves only the exact adapter definitions already bound to handlers by the trusted host. Changing an adapter's scope, version, artifact digest or capability declaration prevents resolution. A manifest cannot install an executor, choose a module path, supply a command string or retrieve credentials.
+
+`await workflow.run(registry)` executes the compiled graph sequentially by stage and topological level. All port packets are schema checked, input bindings are deterministic, and multiple consumers can share a producer. Each step attempt records its workflow version/digest, run identity, executor pin, input packets, usage and output digest. A failed adapter or contract stops downstream execution, retains prior accepted outputs and preserves bounded JSON rejected outputs with diagnostics. Optional cancellation uses `AbortSignal`. This runner returns an in-memory result; it does not publish datasets, persist checkpoints, claim tasks across processes or provide distributed exactly-once execution.
+
+Packets can be small immutable dataset/artifact handles rather than materialized records. `ArtifactHandle` carries `{dataset: Ref, artifact: Ref, format, bytes, records}`; a port contract declares its schema, while the producer's declared pins establish resource identity/access. The runner does not automatically dereference handles. The tests pass metadata for a synthetic 1 TB, one-billion-record artifact while keeping its runtime packet allocation below 8 KiB. Real artifact access and source-specific conversion adapters remain host responsibilities.
+
+Budgets include CPU milliseconds, wire payload memory bytes, serialized output storage bytes, wall-clock milliseconds, tokens, cost in integer micros and concurrency. Publication checks step allocations against stage, workflow and policy limits; CPU, memory, storage, time, tokens and cost are cumulative because this local runner retains outputs and diagnostics. Concurrency is a maximum; the local runner invokes one adapter at a time. Each step accepts at most 65,536 input/output packets. Definitions are bounded to 2 MiB; registry and runtime JSON values are bounded to 16 MiB and 128 nested levels. Artifact handles are the intended representation for larger datasets.
+
+Runtime byte checks measure serialized context/output data, not JavaScript heap allocations. CPU usage is process accounting, not per-thread isolation. Token/cost accounting is reported cooperatively by handlers through `context.charge`. Deadlines abort the context and reject late outputs; they cannot preempt a synchronous loop or stop a handler that ignores cancellation. Trusted local adapters remain ordinary host code. Untrusted adapter execution requires an external sandbox and scheduler; no OS isolation, tenant-wide quota service, remote process executor, model provider, PostgreSQL runtime or distributed worker implementation is claimed here.
+
+`config/workflow.example.json` contains an executable synthetic registry/workflow/policy example: five sources each emit a JSON record and its actual JSONL string, fan into deterministic inference and audit adapters, then join into a report. The inference adapter is a deterministic test handler; it invokes no model. Its publication adapter returns a report packet and performs no external write. The fixture's policy is test authority, not a production authorization source.
+
+Run the JSON example:
+
+```sh
+node --test --test-name-pattern="checked-in JSON example" pipeline/tests/workflow.test.ts
+```
+
+Run the full scoped suite:
+
+```sh
+node --test pipeline/tests/workflow.test.ts
+```
+
+Tests cover actual fan-out/fan-in execution, distinct representations, immutable publication/reopening, new registry operations, unauthorized/forged references, JSON-only inputs, stage and step cycles, port contracts/cardinality, required bindings, budgets, artifact handles, failure retention, cooperative deadlines and loading the checked-in JSON configuration through exact trusted executors.
