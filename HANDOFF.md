@@ -74,3 +74,13 @@ The terminal is now a sibling of the workspace in a shared vertical layout, rath
 Native layout regressions measure offscreen dashboard/dock sizing at bounded window dimensions using synthetic state and no operator bridge. The update does not alter the terminal's artifact-only filesystem boundary or processing behavior.
 
 Fit verification: all 6 native layout/PTY tests passed, including actual terminal NSView containment at bounded sizes. Native build, TypeScript check and both deployment tests passed. Installed and reopened the app after verifying no active PTY child would be interrupted. No model session or processing run was started.
+
+## Collection-only bulk recovery — enrichment intentionally stopped
+
+The old Atlassian collector ran one TWG command at a time with a fixed inter-command delay. The queue's 505 pending entries were mixed collection jobs (pages, historical revisions, attachments, comments and Jira detail streams), not inference jobs. Historical failed error envelopes include explicit rate limits and unavailable resources; generic coverage labels hid their causes.
+
+The collector now uses Jira REST `bulk-get` with up to 100 issue keys, 4 bounded independent workers, global cooldown on rate limiting, serialized progress persistence, and unique dispatch of queued tasks. Individual resource denials remain auditable failures; only authentication failures stop unrelated work. Numeric entity IDs are not interpreted as HTTP error codes. Existing blocked legacy transport operations remain visible rather than being discarded.
+
+A separate recovery store preserves all 1,007 previously accepted responses, archives the 268 prior failed receipts, and requeues those plus 505 pending jobs without modifying the original store or mirrors. The first recovery execution persisted 18 additional responses before exposing an overly broad access-error stop; that guard was repaired and the same recovery store resumed with a new frozen engine. The dashboard's Atlassian pointer follows this recovery store. Payloads go directly to local SQLite/JSONL; only counts enter engineering output. Confluence's per-page PDF/Word export is not substituted for structured version history.
+
+Verification: 10 synthetic collector/recovery/handoff tests and TypeScript check passed. Real bulk collection is running separately from model inference. This does not certify complete source coverage; unresolved permission/resource and legacy transport gaps remain in the ledger. No enrichment job was started. The tested `intake-input.ts` snapshot feature is inert and has not been applied to production data.
