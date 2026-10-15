@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Darwin
 
 struct Bridge: Decodable, Sendable { let node: String; let script: String; let config: String }
 @MainActor final class Panel: ObservableObject {
@@ -35,8 +36,21 @@ struct Bridge: Decodable, Sendable { let node: String; let script: String; let c
         process.environment = ["PATH": "/usr/bin:/bin"]
         process.standardOutput = pipe; process.standardError = diagnostic
         try process.run()
+        let timeout = DispatchWorkItem {
+            if process.isRunning { process.terminate() }
+        }
+        let deadline = DispatchWorkItem {
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 45, execute: timeout)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 47, execute: deadline)
+        defer { timeout.cancel(); deadline.cancel() }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            if let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any], reply["error"] is String { return data }
+            throw NSError(domain: "Panel", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "The pipeline control request failed or timed out. No successful action was confirmed. Review Logs, then refresh status before retrying."])
+        }
         guard data.count <= 3 * 1024 * 1024 else { throw NSError(domain: "Panel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Response exceeds local preview limit"]) }
         return data
     }

@@ -44,3 +44,11 @@ Fresh complete synthetic suite: **349 tests passed, zero failures, zero skips** 
 At the user's request, the compiled native dashboard was copied intact to `~/Applications/Pipeline.app` and opened successfully. The installed executable matches the built executable byte for byte. Opening the dashboard did not start or restart processing. VM provisioning is deferred; this is a dashboard installation, not production-run activation.
 
 The data-free source deployment map is at `dist/releases/c069648927d2ea55a09752f8912a1a16c9b3b901b88c9dc584ac9b0090958ef9/deployment.json`. Compiled native application: `dist/Pipeline.app`. Generated artifacts remain ignored and local.
+
+## Native usability update
+
+Overview now includes processing state, durable completed/queued/failed job counts and direct links to stages, collected data and usage. A single primary processing action replaces the disabled three-button row; contacting state is explicit. Processing errors are visible throughout the workspace. Control requests have a bounded timeout and non-successful exits are surfaced; a timed-out action requires a status refresh before retry.
+
+Usage now displays a readable per-stage table and an explanatory empty state. Missing or partially measured forecasts stay unknown. Raw accounting JSON is collapsed under technical details. Per-value assistance remains available. The Tree/JSON picker no longer wraps its unused label.
+
+Verification: native Swift usage regression passed (unknown history, partial forecasts, aggregation); TypeScript check and complete native build passed. Updated app installed and opened without restarting processing. This is a focused Overview/Usage improvement; the explorer, collection and workflow editing screens retain their existing interfaces.
