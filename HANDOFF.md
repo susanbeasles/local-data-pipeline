@@ -66,3 +66,11 @@ A collapsible native terminal dock follows all dashboard pages. It runs the actu
 The CLI has one writable artifact workspace. Notes, change requests and ADR templates are provided; private CLI state is hidden inside that same boundary. Artifacts open in Finder and are proposals only. Global configuration, source data, application code and processing outputs are not writable by the terminal. Approvals remain enabled, configured MCP servers are disabled, and prior global provider rollout history is excluded. Normal terminal-device access is explicitly allowed. No real provider prompt or processing run was initiated during development.
 
 Terminal acceptance: 38 affected Node tests passed, plus 4 real PTY tests (ANSI/input, repeated reuse, scoped writes, resistant-child shutdown). Deployment integrity tests, TypeScript check and native build passed. The updated app was installed and opened; no real CLI provider session was auto-started and no production processing was restarted. Installed Codex help confirms the interactive flags; the configured Claude CLI is unavailable and labeled accordingly. Authentication and provider responses remain untested until the operator explicitly starts a CLI session.
+
+## Dashboard fit correction
+
+The terminal is now a sibling of the workspace in a shared vertical layout, rather than a safe-area overlay added to a workspace with its own fixed minimum. Its expansion is bounded by the actual window height. The explorer record list has an explicit maximum height and the JSON detail area can shrink with the window; each remains independently scrollable. The terminal surface follows its allocated viewport rather than keeping a larger fixed-height NSView behind a clipping frame.
+
+Native layout regressions measure offscreen dashboard/dock sizing at bounded window dimensions using synthetic state and no operator bridge. The update does not alter the terminal's artifact-only filesystem boundary or processing behavior.
+
+Fit verification: all 6 native layout/PTY tests passed, including actual terminal NSView containment at bounded sizes. Native build, TypeScript check and both deployment tests passed. Installed and reopened the app after verifying no active PTY child would be interrupted. No model session or processing run was started.

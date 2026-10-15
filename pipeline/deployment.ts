@@ -76,7 +76,7 @@ export class DeploymentBundle {
       .filter((n) => /^[A-Za-z0-9]+\.(swift|ts)$/.test(n) || n === "Package.resolved")
       .map((n) => "native/" + n);
     if (native.includes("native/Package.swift")) {
-      for (const path of ["native/Package.resolved","native/pty/pty.c","native/pty/include/CPty.h","native/tests/TerminalPTY/PTYTests.swift","native/tests/UsageTest.swift","native/tests/JsonTest.swift"]) {
+      for (const path of ["native/Package.resolved","native/pty/pty.c","native/pty/include/CPty.h","native/tests/TerminalPTY/PTYTests.swift","native/tests/TerminalPTY/LayoutTests.swift","native/tests/UsageTest.swift","native/tests/JsonTest.swift"]) {
         await bytes(join(sourceRoot,path));
         if (!native.includes(path)) native.push(path);
       }

@@ -65,7 +65,12 @@ struct TerminalDock: View {
  @State private var provider = "codex"
  @State private var large = false
  @State private var confirm = false
- var height: CGFloat { large ? 450 : 260 }
+ let maxHeight: CGFloat
+ init(maxHeight:CGFloat, expanded:Bool = false) {
+  self.maxHeight=maxHeight
+  self._expanded=State(initialValue:expanded)
+ }
+ var height: CGFloat { max(80, min(large ? 450:200,maxHeight-86)) }
  var available: Bool { work.providers.contains { $0["id"] as? String == provider && $0["available"] as? Bool == true } }
  var body: some View {
   VStack(spacing:0) {
@@ -87,7 +92,7 @@ struct TerminalDock: View {
     if !session.error.isEmpty { Text(session.error).font(.caption).foregroundStyle(.red).textSelection(.enabled).padding(.horizontal,12) }
     if !session.active && !available { Text("Selected CLI is unavailable in the workspace configuration. Choose an available CLI or update its executable binding.").font(.caption).foregroundStyle(.orange).padding(.horizontal,12) }
     Text("Only the artifact workspace is writable · notes / requests / decisions · changes remain proposals").font(.caption).foregroundStyle(.secondary).padding(.horizontal,12)
-    TerminalSurface(session:session).frame(height:height)
+    TerminalSurface(session:session).frame(maxWidth:.infinity,maxHeight:.infinity)
    }.frame(height:height+36,alignment:.top).frame(height:expanded ? height+36:0,alignment:.top).clipped().allowsHitTesting(expanded).accessibilityHidden(!expanded)
   }.background(.regularMaterial)
   .confirmationDialog("End this CLI session?",isPresented:$confirm) { Button("End session",role:.destructive){session.end()} } message: { Text("This stops the terminal process. It does not pause or stop the processing pipeline.") }
