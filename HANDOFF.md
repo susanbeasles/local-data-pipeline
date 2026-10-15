@@ -1,104 +1,46 @@
-# Engineering handoff — 2026-10-15
+# Pipeline handoff — 2026-10-15
 
-## Status
+Production is not running from this checkout. No corpus content was processed, migrated, deleted or published during this engineering pass.
 
-This commit is an engineering checkpoint, **not a declaration that the complete platform specification is finished**. It includes previously uncommitted collection/preservation work, the new native data workspace, and the workflow/PostgreSQL foundation. Production source data, local configurations, databases, JSONL, models, credentials and generated applications are excluded from Git.
+## Verified implementation
 
-No production enrichment was launched for this workspace implementation. Existing collectors and the pinned processing instance were not restarted or migrated. Their current status and collection completeness are not established by this handoff.
+- Dedicated codebase, immutable workflow versions, durable execution state and bounded scheduling.
+- Native workflow editor supports exact registered capability references, preview, publication, queueing, status, pause and resume. UI actions cannot execute worker jobs directly.
+- Six packaged MLX roles retain measured prompt/generated token accounting and source/model/workflow provenance. Verified committed checkpoint prefixes are reused on retry. Uncommitted inference can repeat after interruption.
+- Real macOS sandbox regression verifies only the configured PostgreSQL Unix socket is reachable; other sockets and TCP remain denied. Memory enforcement and bounded shutdown remain active.
+- Native app successfully compiled at `dist/Pipeline.app`; it was not installed or launched.
+- Local guest-agent transport carries bounded JSON requests on stdin, validates executable/entry hashes before and after calls, and never falls back to host execution.
+- Source deployment bundles map executor, control and metadata to `susanbeasles/infra` resources. They exclude production data, operator configuration, credentials and model weights. These are source artifacts, not proof of a deployed service.
 
-## Continuation checkpoint - 2026-10-15
+## Acceptance evidence
 
-The cumulative local trace guard is repaired. Admission reserves all retained packet allocations and trace metadata before adapter execution. Failure bodies share the step allocation with retained inputs, error messages are bounded, and input accounting includes JSON envelopes and separators. The original regression and five added workflow boundary/failure tests pass.
+The previous complete synthetic acceptance run passed 339/339 tests. Final additions have targeted synthetic coverage for six-stage accounting, checkpoint reuse, guest transport, deployment integrity and graceful shutdown. See the final verification report below for the fresh complete run; do not interpret mocked inference callbacks as actual GPU benchmarks.
 
-The descriptor supervisor now establishes its required macOS footprint observer before starting workers or the application. A synthetic observer-load failure regression confirms that neither child starts when that prerequisite fails. This does not establish the cause of the previously intermittent macOS extractor failure.
+## Actual execution blocker
 
-Verification used the latest registry-listed Node 24 release, **24.22.0**, installed separately from the host runtime. Type checking passes. The complete Linux suite finishes with **209 passed, 62 failed, 1 skipped, 272 total**. All **27 workflow tests**, **11 PostgreSQL metadata tests**, and the observer preflight regression pass. The remaining failures include missing macOS isolation/model facilities and unavailable process identity observation; this is not a passing macOS acceptance run. See [the exact verification report and failure inventory](docs/verification-2026-10-15.md).
+There is no prepared VM in the configured isolated `state/macos-vms` location. Available disk space is roughly 46 GB, below the infrastructure target of a 64 GB VM disk plus 10 GiB reserve. No storage was deleted to bypass this requirement. VM guest Metal/MLX compatibility remains unverified. Docker `sbx` supplies Linux isolation and cannot execute this macOS MLX/Metal backend.
 
-Native compilation/GUI acceptance, installed MLX execution and the intermittent extractor failure still require the operator's macOS environment and local assets. The complete broader platform acceptance specification is not present in this checkout; the workflow/metadata integration and platform capabilities listed below remain unfinished.
+The deployment owner must provision the private macOS guest and metadata service, install the frozen runtime/import closure and packaged models, verify the OS/network/host-file boundary, and run `pipeline/qualification.ts` with guest-local asset bindings. This synthetic probe must pass before production activation. No host fallback is authorized.
 
-## Original verification at handoff
+## Operator entrypoints
 
-- `npm run check`: passed.
-- Final merged `npm test` with the existing local synthetic-test model/runtime bindings: **265 passed, 1 failed, 266 total**. The remote generation-scoped sampling and paused-worker verification fixes were merged without force-pushing; sampling retains the newer SQLite-only receipt/identity checks.
-- Native Swift compilation was successful during development, but the **fresh handoff compilation failed**. The final check with an explicitly selected Command Line Tools SDK reports a missing `SwiftUIMacros.StateMacro` plugin. Earlier checks also reported malformed plugin responses or inability to load the standard library. Resolve SDK/compiler/plugin compatibility and rerun the build. No updated application deployment is claimed.
-- No authenticated Codex/Claude inference requests were made during engineering validation. Local help probes identified Codex capabilities; Claude was absent at the configured local path.
-- PostgreSQL tests execute actual PostgreSQL through PGlite. They are not proof of a separate-server deployment, multi-host concurrency or production load.
+- `node pipeline/platform.ts /absolute/operator/platform.json`: bounded JSON request on stdin; actions include capabilities, preview, publish, run, status, pause and resume.
+- `node pipeline/platform-worker.ts /absolute/operator/platform.json`: consume queued work inside the prepared guest, using its private PostgreSQL Unix socket and network sandbox. SIGTERM requests a checkpointed stop; resume through the control action.
+- `node pipeline/cli.ts validate /absolute/operator/config.json`: validate the existing six-stage packaged-model configuration without production enrichment.
+- `node pipeline/cli.ts resume /absolute/operator/config.json`: legacy six-stage resume entrypoint; execute only within the qualified guest. The host launcher alone is not VM isolation.
 
-Known remaining full-suite failure:
+Operator paths belong in ignored local JSON configuration. Inputs remain read-only; staging, state and outputs must be separate. Never launch a new mutable checkout over a running frozen instance.
 
-1. `pipeline/tests/workflow.test.ts` — **local trace bounds reject an oversized retained plan before any adapter can perform work**: the expected preflight rejection is missing. Implement the cumulative trace allocation guard before adapters run; preserve the regression test. Prefer immutable artifact handles for large datasets.
+## Guides and deployment
 
-An earlier full run also failed `pipeline/tests/extractor.test.ts` — **sealed extractor executes only under OS restrictions and participates in resume**, with subprocess exit status 1 instead of 0. It passed both subsequent full runs; investigate this intermittent runtime/sandbox failure rather than removing guards.
+See `docs/platform.md`, `docs/studio.md`, `QUALIFICATION.md`, and `pipeline/DEPLOYMENT.md`. Pipeline PR: https://github.com/susanbeasles/local-data-pipeline/pull/6 . Infrastructure PR: https://github.com/susanbeasles/infra/pull/11 . Neither PR has been merged or infrastructure applied here.
 
-Local verification logs are `/private/tmp/handoff-merge-check.log`, `/private/tmp/handoff-final-tests.log`, `/private/tmp/handoff-swift.log` and `/private/tmp/handoff-swift-final.log`; these are not committed and may expire. Re-run checks rather than trusting old logs.
+No new sustained production or VM performance measurement was made. The previously accepted 313 files/minute remains historical, not a new guest benchmark. Collection completeness and current ingestion status were not audited during this pass.
 
-## Code map
+## Final verification
 
-| Area | Entry points |
-| --- | --- |
-| Existing six-stage enrichment | `pipeline/run.ts`, `pipeline/graph.ts`, `pipeline/mlx.ts`, `pipeline/worker.py` |
-| Model role packaging | `pipeline/package.ts`, `pipeline/roles.ts`, `pipeline/role-data.ts` |
-| Collection and durable intake | `pipeline/intake.ts`, `pipeline/github.ts`, `pipeline/slack.ts`, `pipeline/slack-files.ts`, `pipeline/twg.ts`, `pipeline/agents.ts` |
-| Complete content/preservation | `pipeline/content.ts`, `pipeline/records.ts`, `pipeline/preserve.ts`, `pipeline/ingest.ts`, `pipeline/data.ts` |
-| Live read-only source catalog | `pipeline/catalog.ts` |
-| Versioned local datasets and ETL | `pipeline/dataset.ts` |
-| Isolated CLI agent sessions and field assistance | `pipeline/sessions.ts` |
-| Native workspace command bridge | `pipeline/studio.ts`, `pipeline/process.c` |
-| Native macOS interface | `native/Workspace.swift`, `native/StudioViews.swift`, `native/Explorer.swift`, `native/Datasets.swift`, `native/Flows.swift`, `native/Agents.swift` |
-| Processing-instance controls | `pipeline/panel.ts`, `native/Pipeline.swift` |
-| Frozen releases, including runtime dependencies | `pipeline/release.ts`, `native/build.ts` |
-| Declarative graph/registries | `pipeline/workflow.ts`, `config/workflow.example.json` |
-| PostgreSQL schema and transactions | `pipeline/platform.sql`, `pipeline/metadata.ts` |
+Fresh complete synthetic suite: **349 tests passed, zero failures, zero skips** (106 seconds). TypeScript typecheck passed. Graceful shutdown and forced memory termination regressions passed. Deployment artifact verification confirms required legacy imports and residency configuration are included.
 
-## Native workspace delivered in source
+At the user's request, the compiled native dashboard was copied intact to `~/Applications/Pipeline.app` and opened successfully. The installed executable matches the built executable byte for byte. Opening the dashboard did not start or restart processing. VM provisioning is deferred; this is a dashboard installation, not production-run activation.
 
-Source registrations provide live SQLite counts, separate process evidence, checkpoint timestamps and stale indicators. The explorer compares actual SQLite rows and actual JSONL mirrors, labels bounded/unknown results, and imports only after an operator action. Local datasets preserve immutable revisions, full JSONL, stable identities, annotations, typed links, filters, deterministic transformations, dedupe, validation dispositions, correction and resume.
-
-Background worker admission uses guarded SQLite leases, process birth identity and a token handshake. Imports freeze resolved database bindings and verify their saved prefix on retry. ETL/import workers deny network access at the macOS OS boundary and write only operator state. The nonprivileged libproc observer is compiled and hash-pinned because macOS refuses setuid `ps` inside Seatbelt.
-
-Structured fields offer a small previewable assistance packet and exactly three follow-ups. An explicit Ask action starts a fresh installed CLI context; collection tasks have independent sessions, reset/branch/rewind/compact and streamed events. Session help excludes global context history and source reads. Collection read roots must be explicitly configured. Codex/Claude assistance may contact its configured provider; it is separate from local MLX enrichment.
-
-The native UI has not received a final interactive acceptance pass and no new app deployment is claimed. Build after fixing the remaining tests and verifying the local toolchain:
-
-```sh
-npm ci
-npm run check
-npm test
-node native/build.ts /absolute/operator/panel.json /absolute/operator/studio.json
-open dist/Pipeline.app
-```
-
-Use `config/studio.example.json` and [the workspace guide](docs/studio.md). Local absolute paths belong only in ignored operator configuration. The existing prepared panel registry is required by this build entrypoint. Do not incidentally prepare or restart the processing instance while rebuilding its control panel.
-
-The full local engine tests need installed model assets. Supply `PIPELINE_CONFIG=/absolute/local/model-bindings.json` and `PIPELINE_RUNTIME=/absolute/local/uv-runtime` when running `npm test`; inspect `pipeline/local.ts` for binding lookup. Those tests use synthetic inputs, not the configured production corpus. Missing assets are a failure to diagnose, not a reason to remove verification.
-
-## Broader platform: what remains
-
-The supplied platform specification exceeds the existing ordered ETL workspace. The new graph core has immutable definitions, pinned registries, typed ports, scope/capability checks, graph compilation and a trusted local runner. The PostgreSQL layer has normalized entities, authorization checks, compiled-definition persistence, leases/fencing, task attempts, atomic artifact/checkpoint commits, quality gates, usage and audit integrity tests.
-
-These are **not yet a fully integrated replacement platform**:
-
-- The separate `definitions.ts` JSON-to-resource service and `execution.ts` durable graph runner discussed during implementation were **not created**. Do not look for them or claim they are implemented.
-- Complete registry/resource provisioning, the graph runner's integration with durable PostgreSQL execution and the existing resident MLX engine, and platform controls in the native UI remain to be completed.
-- The graph JSON example uses explicitly synthetic deterministic handlers. It proves graph behavior, not model quality or a production inference adapter.
-- Streaming/windowed/incremental execution semantics, distributed operation, scheduled/event triggers, full connector coverage, credential resolution and the entire supplied acceptance matrix are not verified as finished.
-- Local graph handler budgets are cooperative; they do not sandbox arbitrary host code. Dedicated VM isolation remains separate unfinished work. macOS process sandboxing and frozen releases are not a VM or protection against a host administrator.
-- No new sustained performance claim is made. Preserve the existing continuous batching implementation and prior accepted baseline; do not chase throughput by reducing completeness.
-
-## Next actions
-
-1. The cumulative trace guard is repaired and covered by additional regression tests. Investigate the intermittent extractor failure and rerun the complete suite on macOS with valid **local synthetic** model/runtime assets.
-2. Review and finish the new native views, test provider startup using an explicitly approved bounded request, build a frozen control release and perform a local GUI acceptance pass.
-3. Join the validated graph compiler, normalized metadata service and durable execution path. Add end-to-end PostgreSQL + real artifact + worker-interruption tests before exposing production graph controls.
-4. Implement remaining platform capabilities against the supplied completion criteria, failing explicitly on unsupported modes. Keep raw observations, model assertions, accepted facts, lineage and execution dependencies distinct.
-
-## Safety and operational boundaries
-
-- Never commit the corpus or generated data. Keep input roots read-only and all outputs outside them.
-- Do not delete source archives or duplicate-looking files based on this handoff. Preservation/coverage verification is a separate explicit prerequisite.
-- Do not read production records into an engineering chat. Use schemas, metadata and synthetic fixtures.
-- Python environment work uses `uv` only. Do not access the user's protected `~/.local` directory, modify global Codex configuration, install plugins or silently enable external inference.
-- Preserve the current 64-slot batching path and frozen running/staged configurations. Changes to a checkout must not mutate existing releases.
-- Signed commits and repository rules remain in force. Push the working branch; do not bypass protections or force-push.
-
-Related guides: [operator](docs/operator.md), [workspace](docs/studio.md), [catalog](docs/catalog.md), [datasets](docs/dataset.md), [sessions](docs/sessions.md), [workflow core](docs/workflow.md), [metadata](docs/metadata.md).
+The data-free source deployment map is at `dist/releases/c069648927d2ea55a09752f8912a1a16c9b3b901b88c9dc584ac9b0090958ef9/deployment.json`. Compiled native application: `dist/Pipeline.app`. Generated artifacts remain ignored and local.

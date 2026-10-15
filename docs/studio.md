@@ -42,3 +42,19 @@ printf '%s' '{"id":"RUN_UUID"}' | node pipeline/studio.ts flow-resume /absolute/
 ```
 
 Do not commit `state/`, local configurations, databases, JSONL, credentials, logs, generated apps or model artifacts. All generated files stay outside registered inputs.
+
+## Optional workflow platform
+
+The native Flows workspace includes a Workflow JSON tab alongside ordered ETL stages. Add an explicit operator binding to the Studio configuration:
+
+```json
+"platform": { "config": "/absolute/operator/platform.json" }
+```
+
+Relative configuration paths resolve beside the Studio configuration. The operator platform configuration uses the existing `platform/1` format and an already provisioned local PostgreSQL database. Without this binding, workflow actions report that provisioning is required; ordered ETL remains available.
+
+Use Check platform and Registry to inspect the binding, paste a `platform-definition/1` document into the editor, preview it, then publish an immutable version. Choose a published version to queue a run. Copy an existing run identifier to inspect status or pause/resume admission. A queued run requires a separately authorized supervised worker; the native bridge deliberately does not expose the `work` action. Opening the workspace and making these requests never applies migrations or starts inference.
+
+The Studio bridge invokes only health, registry, flows, preview, publish, run, status, pause and resume. Each request opens and closes its local database binding; database grants and the configured host policy still authorize every operation. Published versions and run checkpoints live in PostgreSQL, while the JSON editor holds only an unsaved draft.
+
+Validation: the PGlite platform fixture exercises the native dispatch boundary through preview, publication, run admission, pause, resume and status, including a forbidden worker request. Swift sources also pass compiler type checking. This does not replace installed-app or supervised Unix-socket worker acceptance.

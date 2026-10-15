@@ -184,3 +184,17 @@ test("application spawn failure cleans up already started resident children", as
     } catch {}
   }
 });
+
+test('normal supervisor termination lets the application checkpoint before stopping model workers',async t=>{
+ const root=await mkdtemp('/private/tmp/grace-');t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(join(root,'state'));
+ const worker=join(root,'worker.py'),app=join(root,'app.py'),config=join(root,'config.json');
+ await writeFile(worker,`import signal,time,sys\nfrom pathlib import Path\ndef stop(*args):\n Path(sys.argv[1]).write_text('stopped')\n sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nwhile True:time.sleep(.01)\n`);
+ await writeFile(app,`import signal,time,sys\nfrom pathlib import Path\ndef stop(*args):\n time.sleep(.3)\n if Path(sys.argv[1]).exists():sys.exit(3)\n Path(sys.argv[2]).write_text('committed')\n sys.exit(0)\nsignal.signal(signal.SIGTERM,stop)\nPath(sys.argv[3]).write_text('ready')\nwhile True:time.sleep(.01)\n`);
+ const stopped=join(root,'model-stopped'),checkpoint=join(root,'checkpoint'),ready=join(root,'ready');
+ await writeFile(config,JSON.stringify({count:1,work:root,workerCwd:root,env:{PATH:'/usr/bin:/bin'},workerEnv:{PATH:'/usr/bin:/bin'},worker:['/usr/bin/python3',worker,stopped],application:['/usr/bin/python3',app,stopped,checkpoint,ready],budgetBytes:1024**3}));
+ const child=spawn('/usr/bin/python3',[join(import.meta.dirname,'../launch.py'),config]);child.stdout.resume();child.stderr.resume();
+ t.after(()=>{if(child.exitCode===null)child.kill('SIGKILL');});
+ const done=new Promise<number|null>((ok,no)=>{child.once('error',no);child.once('close',ok);});
+ let started=false;for(let n=0;n<200;n++){try{await readFile(ready);started=true;break;}catch{}await new Promise(ok=>setTimeout(ok,10));}
+ assert.equal(started,true);child.kill('SIGTERM');assert.equal(await done,0);assert.equal(await readFile(checkpoint,'utf8'),'committed');
+});

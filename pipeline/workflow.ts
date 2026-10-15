@@ -174,15 +174,6 @@ const resourceKinds = new Set<ResourceKind>([
   "schema",
   "connection",
 ]);
-const runtimeJsonBytes = 16 * 1024 ** 2;
-const diagnosticChars = 1024;
-function diagnostic(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback;
-  const suffix = "... [truncated]";
-  return message.length <= diagnosticChars
-    ? message
-    : message.slice(0, diagnosticChars - suffix.length) + suffix;
-}
 const bindingCaps: Record<ResourceKind, Capability> = {
   dataset: "data.read",
   artifact: "resource.read",
@@ -223,8 +214,10 @@ const zero = (): Usage => ({
   costMicros: 0,
   concurrency: 0,
 });
+const jsonBytes = 16 * 1024 ** 2;
+const errorBytes = 4096;
 
-function json(value: unknown, limit = runtimeJsonBytes): string {
+function json(value: unknown, limit = jsonBytes): string {
   const seen = new Set<object>();
   let bytes = 0;
   const count = (text: string) => {
@@ -484,6 +477,20 @@ export class Registry {
       if (!value.capabilities.includes(bindingCaps[item.kind]))
         throw Error("Resource binding conceals a required capability");
     return this.add("type", value as StepType);
+  }
+  references(): Frozen<{ contracts: Ref[]; resources: Ref[]; adapters: Ref[]; types: Ref[] }> {
+    const refs = (kind: RegistryKind) =>
+      [...(this.entries.get(kind)?.values() ?? [])]
+        .map((entry) => entry.ref)
+        .sort((a, b) =>
+          compare(json([a.id, a.version, a.digest]), json([b.id, b.version, b.digest])),
+        );
+    return frozen({
+      contracts: refs("contract"),
+      resources: refs("resource"),
+      adapters: refs("adapter"),
+      types: refs("type"),
+    });
   }
   manifest(): Frozen<Manifest> {
     const list = <T extends Identity>(kind: RegistryKind): T[] =>
@@ -783,6 +790,74 @@ function checkPackets(
     throw Error("Port data contract failed: " + label);
 }
 
+function diagnostic(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+  // A UTF-16 code unit occupies at most six bytes after JSON escaping.
+  const suffix = "... [truncated]";
+  const limit = Math.floor((errorBytes - 2 - suffix.length) / 6);
+  return message.length > limit ? message.slice(0, limit) + suffix : message;
+}
+
+function reserveTrace(plan: Frozen<Plan>, workflow: Ref, scope: Frozen<Scope>): void {
+  const run = "00000000-0000-0000-0000-000000000000";
+  const date = "2000-01-01T00:00:00.000Z";
+  const usage = Object.fromEntries(budgetKeys.map((key) => [key, Number.MAX_SAFE_INTEGER]));
+  const ports = (values: Frozen<Record<string, Port>>) =>
+    Object.fromEntries(Object.keys(values).map((key) => [key, []]));
+  const outputs = new Map(
+    plan.steps.map((step) => [
+      step.id,
+      Math.min(step.budget.storageBytes, step.budget.memoryBytes, jsonBytes),
+    ]),
+  );
+  const message =
+    "Local trace allocation exceeds its byte bound; use artifact handles for larger data";
+  let metadata: number;
+  try {
+    metadata = Buffer.byteLength(
+      json({
+        id: run,
+        workflow,
+        scope,
+        state: "completed",
+        usage,
+        outputs: Object.fromEntries(plan.steps.map((step) => [step.id, ports(step.ports.outputs)])),
+        steps: plan.steps.map((step) => ({
+          run,
+          workflow,
+          step: step.id,
+          stage: step.stage,
+          type: step.type,
+          adapter: step.adapter,
+          state: "completed",
+          startedAt: date,
+          finishedAt: date,
+          usage,
+          inputs: ports(step.ports.inputs),
+          outputDigest: "0".repeat(64),
+          error: "",
+          rejected: null,
+        })),
+      }),
+    );
+  } catch {
+    throw Error(message);
+  }
+  let retained = 0;
+  for (const step of plan.steps) {
+    // The returned trace serializes packets again for each downstream attempt.
+    const inputs = Object.values(step.inputs)
+      .flat()
+      .reduce((bytes, endpoint) => bytes + outputs.get(endpoint.step)!, 0);
+    const incoming = Math.min(inputs, step.budget.memoryBytes);
+    // Rejected output shares this attempt's allocation with its retained input.
+    const rejected = Math.min(step.budget.memoryBytes, jsonBytes);
+    if (metadata + retained + rejected + errorBytes > jsonBytes) throw Error(message);
+    retained += incoming + Math.min(outputs.get(step.id)!, step.budget.memoryBytes - incoming);
+    if (metadata + retained + errorBytes > jsonBytes) throw Error(message);
+  }
+}
+
 /** Immutable, verified local DAG. Persistence and multi-process authority belong to an external run store. */
 export class Workflow {
   readonly definition: Frozen<Definition>;
@@ -831,6 +906,7 @@ export class Workflow {
         version: this.definition.version,
         digest: this.digest,
       };
+    reserveTrace(current.plan, workflow, current.definition.scope);
     const run: Run = {
       id: runId,
       workflow,
@@ -840,50 +916,6 @@ export class Workflow {
       outputs: Object.create(null),
       usage: zero(),
     };
-    // Every attempt retains its inputs and the run retains accepted outputs.
-    // Reserve the complete plan before invoking even its first adapter: a
-    // per-step check cannot protect the final bounded in-memory trace.
-    const traceAllocation = aggregate(current.plan.steps.map((step) => step.budget as Budget));
-    // A failed attempt may exceed a budget before the violation is detected.
-    const usageOverhead = Object.fromEntries(budgetKeys.map((key) => [key, Number.MAX_VALUE]));
-    const traceOverhead = Buffer.byteLength(
-      json({
-        ...run,
-        usage: usageOverhead,
-        steps: current.plan.steps.map((step) => ({
-          run: runId,
-          workflow,
-          step: step.id,
-          stage: step.stage,
-          type: step.type,
-          adapter: step.adapter,
-          state: "completed",
-          startedAt: new Date(0).toISOString(),
-          finishedAt: new Date(0).toISOString(),
-          usage: usageOverhead,
-          inputs: Object.fromEntries(
-            Object.keys(step.ports.inputs).map((key) => [key, []]),
-          ),
-          outputDigest: "0".repeat(64),
-        })),
-        outputs: Object.fromEntries(
-          current.plan.steps.map((step) => [
-            step.id,
-            Object.fromEntries(
-              Object.keys(step.ports.outputs).map((key) => [key, []]),
-            ),
-          ]),
-        ),
-      }),
-    );
-    // Execution stops on its first failure. Reserve one maximally escaped error.
-    const failureOverhead = Buffer.byteLength(json({
-      error: "\0".repeat(diagnosticChars), rejected: null,
-    }));
-    if (traceAllocation.memoryBytes + traceOverhead + failureOverhead > runtimeJsonBytes)
-      throw Error(
-        "Local trace allocation exceeds JSON bound; use immutable artifact handles",
-      );
     for (const step of current.plan.steps) {
       const inputs: Outputs = Object.create(null),
         pins: Record<string, Resource> = Object.create(null),
@@ -910,17 +942,17 @@ export class Workflow {
       if (options.signal?.aborted) abort();
       else options.signal?.addEventListener("abort", abort, { once: true });
       try {
-        let inputBytes = Buffer.byteLength(json(
-          Object.fromEntries(Object.keys(step.inputs).map((key) => [key, []])),
-        )),
+        let inputBytes = Buffer.byteLength(
+            json(Object.fromEntries(Object.keys(step.inputs).map((key) => [key, []]))),
+          ),
           packets = 0;
         for (const [key, endpoints] of Object.entries(step.inputs)) {
           inputs[key] = [];
           for (const endpoint of endpoints)
             for (const packet of run.outputs[endpoint.step][endpoint.port]) {
-              inputBytes += (inputs[key].length ? 1 : 0) + Buffer.byteLength(
-                json(packet, Math.min(step.budget.memoryBytes, 16 * 1024 ** 2)),
-              );
+              inputBytes +=
+                (inputs[key].length ? 1 : 0) +
+                Buffer.byteLength(json(packet, Math.min(step.budget.memoryBytes, 16 * 1024 ** 2)));
               if (++packets > 65536 || inputBytes > step.budget.memoryBytes)
                 throw Error("Step input packet or memory budget exceeded");
               inputs[key].push(packet);
@@ -945,12 +977,15 @@ export class Workflow {
           signal: controller.signal,
           charge(value) {
             fields(value, ["tokens", "costMicros"], "usage charge");
+            const next = { ...usage };
             for (const key of ["tokens", "costMicros"] as const) {
               const amount = value[key] ?? 0;
               if (!Number.isSafeInteger(amount) || amount < 0) throw Error("Invalid usage charge");
-              usage[key] += amount;
+              next[key] += amount;
+              if (!Number.isSafeInteger(next[key])) throw Error("Usage charge overflow");
             }
-            within(usage, step.budget as Budget, "Step usage");
+            within(next, step.budget as Budget, "Step usage");
+            Object.assign(usage, next);
           },
         };
         output = await Promise.race([
@@ -969,9 +1004,7 @@ export class Workflow {
             );
           }),
         ]);
-        const serialized = json(output);
-        usage.storageBytes = Buffer.byteLength(serialized);
-        usage.memoryBytes += usage.storageBytes;
+        json(output);
         if (!object(output) || Object.keys(output).some((key) => !own(step.ports.outputs, key)))
           throw Error("Adapter returned an undeclared output port");
         let outputPackets = 0;
@@ -980,15 +1013,18 @@ export class Workflow {
           outputPackets += (output[key] as Json[] | undefined)?.length ?? 0;
         }
         if (outputPackets > 65536) throw Error("Step output packet bound exceeded");
+        const normalized = Object.fromEntries(
+          Object.keys(step.ports.outputs).map((key) => [key, (output as Outputs)[key] ?? []]),
+        );
+        const serialized = json(normalized);
+        usage.storageBytes = Buffer.byteLength(serialized);
+        usage.memoryBytes += usage.storageBytes;
         usage.timeMs = Math.ceil(performance.now() - started);
         const elapsed = process.cpuUsage(cpu);
         usage.cpuMs = Math.ceil((elapsed.user + elapsed.system) / 1000);
         within(usage, step.budget as Budget, "Step output");
-        const normalized = Object.fromEntries(
-          Object.keys(step.ports.outputs).map((key) => [key, (output as Outputs)[key] ?? []]),
-        );
         run.outputs[step.id] = frozen(normalized) as Outputs;
-        attempt.outputDigest = sha(json(normalized));
+        attempt.outputDigest = sha(serialized);
       } catch (error) {
         attempt.state = "failed";
         attempt.error = diagnostic(error, "Local adapter failed");
@@ -996,7 +1032,7 @@ export class Workflow {
         if (output !== undefined) {
           try {
             const remaining = step.budget.memoryBytes - Buffer.byteLength(json(inputs));
-            const serialized = json(output, Math.max(0, Math.min(remaining, runtimeJsonBytes)));
+            const serialized = json(output, Math.max(0, Math.min(remaining, jsonBytes)));
             attempt.rejected = JSON.parse(serialized) as Json;
           } catch {
             /* Oversized/non-JSON outputs remain an explicit diagnostic, not accepted data. */

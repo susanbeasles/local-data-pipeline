@@ -103,7 +103,7 @@ export type Outcome = {
   step?: number;
   reason?: string;
 };
-export type Options = { pauseOnFailure?: boolean };
+export type Options = { pauseOnFailure?: boolean; id?:string };
 export type Capture = { id: string };
 export type Integrity = { records: number; bytes: number; hash: string; intact: true };
 type Row = { [key: string]: unknown };
@@ -693,6 +693,18 @@ export class Dataset {
       throw Error("capture id must be a UUID");
     return this.publish(name, records, undefined, undefined, options?.id);
   }
+  /** Read one verified capture checkpoint without materializing the full saved prefix. */
+  checkpoint(id: string, index: number): RecordInput | undefined {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id) || !Number.isSafeInteger(index) || index < 0)
+      throw Error("invalid capture checkpoint");
+    const revision = "rev-" + id;
+    const published = this.db.prepare("SELECT id FROM revisions WHERE id=?").get(revision);
+    const row = published
+      ? this.db.prepare("SELECT r.*,o.source,o.human_key FROM revision_items r JOIN originals o ON o.id=r.id WHERE r.revision=? AND r.n=?").get(revision,index)
+      : this.db.prepare("SELECT * FROM draft_items WHERE revision=? AND n=?").get(revision,index);
+    if (!row) return undefined;
+    return {id:String(row.id),source:String(row.source),key:String(row.human_key),body:decode(row,"capture checkpoint " + index)};
+  }
   revision(id: string): Revision {
     const row = this.db.prepare("SELECT * FROM revisions WHERE id=?").get(id);
     if (!row) throw Error("unknown revision: " + id);
@@ -876,13 +888,19 @@ export class Dataset {
     const revision = this.revision(parent),
       validated = validateSteps(plan),
       body = json(validated),
-      id = randomUUID();
+      id = options.id??randomUUID();
+    if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))throw Error('dataset run identity must be a UUID');
     if (options.pauseOnFailure !== undefined && typeof options.pauseOnFailure !== "boolean")
       throw Error("invalid pauseOnFailure");
-    this.db
-      .prepare("INSERT INTO runs VALUES(?,?,NULL,'running',?,?,?,0,?,NULL)")
-      .run(id, parent, body, hash(body), options.pauseOnFailure === false ? 0 : 1, revision.count);
-    return this.readRun(id);
+    return this.transaction(()=>{
+      const prior=this.db.prepare('SELECT * FROM runs WHERE id=?').get(id);
+      if(prior){
+        if(prior.parent!==parent||prior.steps!==body||prior.pause!==(options.pauseOnFailure===false?0:1))throw Error('dataset run identity has different parameters');
+        return this.readRun(id);
+      }
+      this.db.prepare("INSERT INTO runs VALUES(?,?,NULL,'running',?,?,?,0,?,NULL)").run(id,parent,body,hash(body),options.pauseOnFailure===false?0:1,revision.count);
+      return this.readRun(id);
+    });
   }
   private runRow(id: string): Row {
     const row = this.db.prepare("SELECT * FROM runs WHERE id=?").get(id);
