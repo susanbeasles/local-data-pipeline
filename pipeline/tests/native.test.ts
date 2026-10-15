@@ -16,3 +16,14 @@ test("native usage distinguishes missing history, partial forecasts and recorded
     assert.match(result.stdout, /Usage presentation checks passed/);
   } finally { await rm(root, {recursive:true, force:true}); }
 });
+
+test("native JSON tree preserves JSON values and makes preview limits explicit", {skip: process.platform !== "darwin"}, async () => {
+  const root = await mkdtemp(join(tmpdir(), "native-json-"));
+  try {
+    const binary = join(root, "json");
+    const source = resolve(import.meta.dirname, "../..");
+    await exec("/usr/bin/swiftc", [join(source,"native/JsonNode.swift"), join(source,"native/tests/JsonTest.swift"), "-o", binary], {timeout: 60000, maxBuffer: 1024*1024});
+    const result = await exec(binary, [], {timeout:10000});
+    assert.match(result.stdout, /JSON tree presentation checks passed/);
+  } finally { await rm(root, {recursive:true, force:true}); }
+});

@@ -52,3 +52,9 @@ Overview now includes processing state, durable completed/queued/failed job coun
 Usage now displays a readable per-stage table and an explanatory empty state. Missing or partially measured forecasts stay unknown. Raw accounting JSON is collapsed under technical details. Per-value assistance remains available. The Tree/JSON picker no longer wraps its unused label.
 
 Verification: native Swift usage regression passed (unknown history, partial forecasts, aggregation); TypeScript check and complete native build passed. Updated app installed and opened without restarting processing. This is a focused Overview/Usage improvement; the explorer, collection and workflow editing screens retain their existing interfaces.
+
+## JSON explorer update
+
+Record views now use lazy, indented, collapsible JSON branches with syntax-colored primitives, quoted/escaped strings, visible braces and array/object summaries. Per-field and record-identity help buttons were removed from the explorer; copy value, copy JSON path and field assistance are in the context menu. SQLite and JSONL remain side by side, with Raw JSON available separately. Preview limits are explicit rather than silent, and key paths distinguish literal punctuation from nested keys.
+
+Verification: both native synthetic tests passed, including nested key identities, JSON escaping, booleans/null, empty containers, long strings and visible depth/child bounds. Complete native app build and TypeScript check passed. Installed and opened the updated app; no processing run was restarted.
