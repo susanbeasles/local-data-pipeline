@@ -92,3 +92,33 @@ Local operator state `state/enrichment-runs/current.json` identifies the fresh r
 The real packaged MLX synthetic gate completed both files and all six stages with integrity true (103.4 seconds, reported worker peak 7.04 GB). Its original semantic check incorrectly rejected “does not allow network access.” A regression-tested equivalent-phrase fix recognizes this explicit prohibition while continuing to reject enabled access; revalidation of the original saved output reports no quality errors. Original gate artifacts are preserved.
 
 Additional local source captures are tracked separately by `state/imports/local-repos-current.json`. Consult each report: workflow and data-pipeline preservation passed; logger and star-config captures did not certify, and infra capture was ongoing at launch. None of those unresolved captures is silently counted as complete. Original sources remain untouched.
+
+## Checkpoint restart repair (2026-10-15)
+
+The first wave saved 2,117 stage results before an admitted inference timeout; no completed-file throughput is claimed. Memory remained below budget. The resumed run uses caffeinate and a separate frozen engine; original inputs and the original engine remain intact.
+
+The model fingerprint includes run.ts. A preparation-only edit therefore changed job identities; that attempt was stopped before new inference. All 2,117 original results passed schema, provenance, attempt and file-hash checks; 989 missing job-index links were restored from those verified receipts. The production engine retains the original run.ts and all fingerprinted inference modules. Storage-only fixes reuse byte-checked normalized chunks and avoid redundant FTS writes, including when source context metadata changes. A source/chunk/role index accelerates existing recovery queries.
+
+`pipeline/recover-results.ts WORK` reattaches only verified completed receipts under the run lock; it is not an enrichment entrypoint and refuses corrupt/mismatched outputs. Synthetic tests cover idempotency and corruption rejection.
+
+Validation: 16 focused recovery, receipt-reconciliation and storage tests passed; TypeScript checking passed. Earlier broad validation passed 359 tests, and all five installed-runtime/sandbox tests passed with actual model paths after default-path failures. Consult state/enrichment-runs/current.json for the active engine, config and log. A live resume must show new completed stage jobs before being described as verified end to end.
+
+A further synthetic regression reproduced stale recreated job counters colliding with the durable attempt ledger. Store initialization now advances counters to the maximum saved attempt without deleting history; 17 focused tests and TypeScript checking pass. The production engine retains the original inference fingerprint. The earlier report of failed signing remains unresolved until a signed push succeeds.
+
+Final restart verification: the configured full suite passed 364 tests with zero failures; TypeScript checking passed. The production resume reached four active inference requests and increased durable completed stage jobs from 2,117 to 2,122 with zero failed jobs. Bounded evidence is saved locally as `restart-verification.json` under the active run. This proves fresh inference after recovery, not completion of all six stages or the full corpus. Signing attempts were rejected, so the latest recovery fixes remain staged locally and are not pushed.
+
+## Input cost investigation (2026-10-16)
+
+The historical 313/minute run processed 384 narrow synthetic adapter fixtures with 57 input tokens each; current returned-call sample averages 2,514 input tokens. The 4/16 request comparison gave 43.20/40.65 seconds for sixteen synthetic Tag requests with identical outputs; production resumed automatically at concurrency 16 using unchanged inference identity and all guards. This is a small, short Tag-only comparison, not sustained six-stage throughput.
+
+Local aggregate inspection found 175.7 MB of repeated nested Slack roots with only 3.72 MB of distinct values, and 15.0 MB of bot profiles with only 18.3 KB distinct. The raw response handoff lacks provider-specific normalization. pipeline/json-values.ts now supplies exact repeated-structure factoring with separate escaped reference maps and full hash-checked reconstruction. Five synthetic tests and TypeScript checking pass. This primitive has NOT been integrated into production model input; cross-record inference quality, persistence integration and completed-source coverage reconciliation remain required. Raw inputs and the running corpus have not been changed. Local input-cost-findings.json records aggregate evidence.
+
+## Two-hour round target and input preparation (2026-10-16)
+
+The target is 7,200 seconds per complete stage, including preparation, inference, retries, verification and durable publication for every source. It is NOT met. The measured current path is over 32 times below the required chunk rate on even the short Tag diagnostic. True prefill batching at 1/4/8 sequences measured 671.8/709.8/716.8 dynamic input tokens per second with identical synthetic outputs and less than 11 GB aggregate footprint. This small comparison is not sustained qualification. Production resumed with its original prefill setting and checkpoint.
+
+The lossless normalizer verified all 6,866 accepted-response snapshot files in 153.437 seconds and reduced its factored view from 542.5 MB raw to 317.9 MB. It is explicitly NOT inference-ready: thread/context qualification and source mappings into model-facing input remain unfinished. No data was skipped or fed to the model as unresolved references. The current snapshot does not include all repository sources or outstanding collection.
+
+See docs/throughput.md for normalization/resume commands and the two-hour evidence evaluator, and docs/throughput-verification.md for measurements, limitations and remaining acceptance gaps. Full suite: 382/382 passed; subsequent strict-evidence regression and TypeScript check passed. Latest signing/push status must be confirmed from Git; this paragraph does not claim an upload.
+
+Final verification for this change: all 383 synthetic tests passed with zero failures, TypeScript checking passed, and git diff --check passed. Automatic production resume is revalidating its existing source checkpoint; no two-hour full-round acceptance is claimed.

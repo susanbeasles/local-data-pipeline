@@ -57,6 +57,27 @@ export class Records {
       chunks: chunks.map(({ text: _text, ...metadata }) => metadata),
       ...context,
     });
+    const prior = this.db.prepare("SELECT body,digest FROM source_data WHERE id=?").get(source.id);
+    {
+      const rows = this.db
+        .prepare("SELECT n,body,digest FROM chunk_data WHERE source=? ORDER BY n")
+        .all(source.id);
+      if (
+        rows.length === chunks.length &&
+        rows.every((row, i) => {
+          const expected = JSON.stringify(chunks[i]);
+          return (
+            row.n === chunks[i]!.index && row.body === expected && row.digest === digest(expected)
+          );
+        })
+      ) {
+        if (prior?.body !== body || prior.digest !== digest(body))
+          this.db
+            .prepare("INSERT OR REPLACE INTO source_data VALUES(?,?,?)")
+            .run(source.id, body, digest(body));
+        return;
+      }
+    }
     this.db
       .prepare("INSERT OR REPLACE INTO source_data VALUES(?,?,?)")
       .run(source.id, body, digest(body));

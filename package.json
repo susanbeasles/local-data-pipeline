@@ -13,7 +13,8 @@
     "console": "node pipeline/console.ts",
     "status": "node pipeline/status.ts",
     "acceptance": "node pipeline/enrichment-benchmark.ts",
-    "load": "node pipeline/tests/load.ts"
+    "load": "node pipeline/tests/load.ts",
+    "check:throughput": "node pipeline/throughput.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.3.7",

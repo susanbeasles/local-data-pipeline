@@ -1,0 +1,4 @@
+{
+  "seconds": 7200,
+  "stages": ["tag", "classify", "summarize", "knowledge", "reconcile", "connect"]
+}

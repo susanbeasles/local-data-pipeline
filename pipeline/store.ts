@@ -62,8 +62,12 @@ CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,path TEXT NOT NULL,hash T
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,source TEXT NOT NULL,chunk INTEGER NOT NULL,role TEXT NOT NULL,config TEXT NOT NULL,state TEXT NOT NULL,attempt INTEGER NOT NULL DEFAULT 0,output TEXT,outputHash TEXT,error TEXT);
 CREATE INDEX IF NOT EXISTS jobs_schedule ON jobs(state,source,chunk,role);
 CREATE INDEX IF NOT EXISTS jobs_source ON jobs(source);
+CREATE INDEX IF NOT EXISTS jobs_chunk ON jobs(source,chunk,role);
 CREATE TABLE IF NOT EXISTS artifacts(path TEXT PRIMARY KEY,hash TEXT NOT NULL,job TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS attempts(job TEXT,attempt INTEGER,state TEXT,error TEXT,time TEXT,PRIMARY KEY(job,attempt));`);
+    this.db.exec(
+      "UPDATE jobs SET attempt=max(attempt,coalesce((SELECT max(attempts.attempt) FROM attempts WHERE attempts.job=jobs.id),0)) WHERE attempt<coalesce((SELECT max(attempts.attempt) FROM attempts WHERE attempts.job=jobs.id),0)",
+    );
     this.records = new Records(this.db);
   }
   transaction<T>(fn: () => T): T {
