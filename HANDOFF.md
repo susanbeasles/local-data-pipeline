@@ -122,3 +122,15 @@ The lossless normalizer verified all 6,866 accepted-response snapshot files in 1
 See docs/throughput.md for normalization/resume commands and the two-hour evidence evaluator, and docs/throughput-verification.md for measurements, limitations and remaining acceptance gaps. Full suite: 382/382 passed; subsequent strict-evidence regression and TypeScript check passed. Latest signing/push status must be confirmed from Git; this paragraph does not claim an upload.
 
 Final verification for this change: all 383 synthetic tests passed with zero failures, TypeScript checking passed, and git diff --check passed. Automatic production resume is revalidating its existing source checkpoint; no two-hour full-round acceptance is claimed.
+
+## Native viewport repair (2026-10-16)
+
+The panel now reserves 96pt above sidebar/detail content and 32pt below, and no longer forces its root to a height that includes the title-bar region. The synthetic titled-window regression verifies 52pt of usable sidebar clearance below the toolbar at 720, 820 and 940pt window heights. All eight native layout/PTY/sandbox tests passed; the release build passed. Both local app bundles were updated with bridge files unchanged, and the installed panel was reopened as a single instance. No processing pause, restart or backend reconfiguration was performed.
+
+## Source-documentation handoff deliverable (2026-10-16)
+
+`pipeline/handoff.ts CONFIG.json` now builds a portable, searchable HTML handoff pack with source-authored documentation, README/runbook starting links, declared scripts/dependencies, Git revision metadata and exact selected bytes in SQLite plus JSONL. It enforces OS network/source-write denial, uses a hash-authorized fixed search script, escapes source HTML, avoids Git status/clean-filter execution and never executes project instructions. Relative paths resolve against the JSON file. The default selects Git-tracked documentation; unknown/untracked material requires explicit opt-in.
+
+The actual local company-only pack contains 1,048 records (5,027,149 source bytes) from 13 repositories with zero unsupported selections. Independent CLI verification passed. The ignored pointer `state/handoffs/current.json` locates the pack and operator config; source data is never staged or pushed. Two requested repositories were not found at the designated local paths; personal/unverified source roots were excluded. These exclusions remain in the local scope record.
+
+This is a source-documentation reference pack, not completion of historical enrichment, a newly synthesized architecture narrative or deployment certification. The processing engine and input corpus were not restarted, reconfigured or modified by this work. Final verification: all 390 pipeline tests and eight native tests passed, TypeScript checking and release build passed. See docs/handoff-pack.md for commands and exact scope. Hardware signing must succeed before the source changes can be described as pushed.

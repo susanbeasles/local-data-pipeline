@@ -1,0 +1,6 @@
+{
+  "title": "Engineering handoff",
+  "sources": [{ "name": "application", "path": "../input/application" }],
+  "output": "../output/handoff",
+  "untracked": false
+}
