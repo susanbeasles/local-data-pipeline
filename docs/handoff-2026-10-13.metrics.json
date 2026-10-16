@@ -1,0 +1,93 @@
+{
+  "equality": {
+    "fixedInstructions": true,
+    "dynamicRequests": true,
+    "outputs": true
+  },
+  "results": [
+    {
+      "mode": "inline",
+      "seconds": 132.881420292,
+      "completed": 2,
+      "filesPerMinute": 0.9030607871010579,
+      "promptPrefillTokens": 15044,
+      "initialSystemPrefillTokens": 0,
+      "generatedTokens": 1390,
+      "generatedTokensPerSecond": 10.46045411725392,
+      "integrity": true,
+      "qualityErrors": [],
+      "resources": {
+        "workers": 1,
+        "budgetBytes": 32000000000,
+        "budgetExceeded": false,
+        "peakFootprintBytes": 7853780104,
+        "peakResidentBytes": 6991265792,
+        "gpuMeanPercent": 70.28927203065135,
+        "gpuPeakPercent": 100,
+        "gpuScope": "system-wide Apple GPU device utilization; other applications may contribute",
+        "exitCode": 0
+      },
+      "initialization": {
+        "roleArtifactsLoaded": 6,
+        "systemTokenizations": 0,
+        "systemPrefillTokens": 0,
+        "templateConstructions": 0,
+        "weightChanges": false,
+        "mode": "inline",
+        "instructionSets": 7
+      },
+      "engine": {
+        "refills": 0,
+        "promptTokens": 15044,
+        "promptSeconds": 19.47266720900003,
+        "generationTokens": 1451,
+        "generationSeconds": 87.2084330890002,
+        "fixedTokensReused": 0,
+        "requestSystemTokenizations": 61,
+        "requestTemplates": 61
+      }
+    },
+    {
+      "mode": "packaged",
+      "seconds": 126.777668,
+      "completed": 2,
+      "filesPerMinute": 0.946538944067026,
+      "promptPrefillTokens": 4284,
+      "initialSystemPrefillTokens": 1925,
+      "generatedTokens": 1390,
+      "generatedTokensPerSecond": 10.964076102109718,
+      "integrity": true,
+      "qualityErrors": [],
+      "resources": {
+        "workers": 1,
+        "budgetBytes": 32000000000,
+        "budgetExceeded": false,
+        "peakFootprintBytes": 7999250616,
+        "peakResidentBytes": 7033339904,
+        "gpuMeanPercent": 68.00200400801603,
+        "gpuPeakPercent": 100,
+        "gpuScope": "system-wide Apple GPU device utilization; other applications may contribute",
+        "exitCode": 0
+      },
+      "initialization": {
+        "roleArtifactsLoaded": 6,
+        "systemTokenizations": 7,
+        "systemPrefillTokens": 1925,
+        "templateConstructions": 7,
+        "weightChanges": false,
+        "mode": "packaged",
+        "instructionSets": 7
+      },
+      "engine": {
+        "refills": 0,
+        "promptTokens": 4284,
+        "promptSeconds": 9.126477791999989,
+        "generationTokens": 1451,
+        "generationSeconds": 88.07639378700017,
+        "fixedTokensReused": 10760,
+        "requestSystemTokenizations": 0,
+        "requestTemplates": 0
+      }
+    }
+  ]
+}

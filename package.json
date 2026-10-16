@@ -1,0 +1,19 @@
+{
+  "name": "local-data-pipeline",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "test": "node --test pipeline/tests/*.test.ts",
+    "benchmark": "node pipeline/enrichment-benchmark.ts",
+    "check": "tsc --noEmit",
+    "verify": "node pipeline/verify.ts check"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  }
+}

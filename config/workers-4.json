@@ -1,0 +1,7 @@
+{
+  "workers": 4,
+  "batchSize": 16,
+  "concurrency": 64,
+  "budgetBytes": 32000000000,
+  "memoryBytes": 7750000000
+}
