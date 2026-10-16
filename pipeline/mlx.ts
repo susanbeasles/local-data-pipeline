@@ -16,6 +16,8 @@ import { assertNetworkDenied } from "./sandbox.ts";
 import { sandbox, type Sandbox } from "./legacy/sandbox.ts";
 import type { Request } from "./run.ts";
 export type Model = {
+  uv?: string;
+  observeRoots?: number[];
   package?: string;
   roleMode?: "packaged" | "inline";
   prefillSize?: number;
@@ -329,6 +331,7 @@ export async function modelVersion(model: Model, roles: string[]) {
 }
 
 export function bounds(model: Model) {
+  if (model.observeRoots !== undefined && (!Array.isArray(model.observeRoots) || model.observeRoots.length > 16 || model.observeRoots.some(pid => !Number.isSafeInteger(pid) || pid < 2))) throw Error("invalid observed pipeline roots");
   if (
     ![model.memoryBytes, model.timeoutMs, model.maxTokens].every(
       (value) => Number.isSafeInteger(value) && value > 0,

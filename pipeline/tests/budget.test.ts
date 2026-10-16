@@ -198,3 +198,13 @@ test('normal supervisor termination lets the application checkpoint before stopp
  let started=false;for(let n=0;n<200;n++){try{await readFile(ready);started=true;break;}catch{}await new Promise(ok=>setTimeout(ok,10));}
  assert.equal(started,true);child.kill('SIGTERM');assert.equal(await done,0);assert.equal(await readFile(checkpoint,'utf8'),'committed');
 });
+
+test('an observed pipeline tree counts toward the budget but is never terminated',async()=>{
+ const root=await mkdtemp('/private/tmp/shared-budget-');await mkdir(join(root,'state'));
+ const external=spawn(process.execPath,['-e','globalThis.data=Buffer.alloc(180*1024*1024,1);console.log("ready");setInterval(()=>{},1000)']);external.stderr.resume();
+ await new Promise<void>((ok,no)=>{external.once('error',no);external.stdout.once('data',()=>ok());});
+ const script=join(root,'idle.py');await writeFile(script,'import time\nwhile True: time.sleep(.1)\n');const config=join(root,'launcher.json');
+ await writeFile(config,JSON.stringify({count:1,budgetBytes:170*1024**2,observeRoots:[external.pid],work:root,workerCwd:root,env:{PATH:'/usr/bin:/bin'},workerEnv:{PATH:'/usr/bin:/bin'},worker:['/usr/bin/python3',script],application:['/usr/bin/python3',script]}));
+ const child=spawn('/usr/local/bin/uv',['run','--no-project','--offline','--python','/usr/bin/python3',join(import.meta.dirname,'../launch.py'),config],{detached:true});child.stdout.resume();child.stderr.resume();const timer=setTimeout(()=>{try{process.kill(-child.pid!,'SIGKILL');}catch{}},8000);
+ try{const code=await new Promise<number|null>((ok,no)=>{child.once('error',no);child.once('close',ok);});assert.notEqual(code,0);const r=JSON.parse(await readFile(join(root,'state/resources.json'),'utf8'));assert.ok(r.budgetExceeded);assert.ok(r.processesAtPeak.some((p:any)=>p.role==='observed:'+external.pid));assert.equal(external.exitCode,null);process.kill(external.pid!,0);}finally{clearTimeout(timer);external.kill('SIGKILL');}
+});

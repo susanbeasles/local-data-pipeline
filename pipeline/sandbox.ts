@@ -96,6 +96,7 @@ export async function launch(
       JSON.stringify({
         count: limits.count,
         budgetBytes: limits.budget,
+        observeRoots: model.observeRoots ?? [],
         work: paths.work,
         workerCwd: box.directory,
         env,
@@ -117,8 +118,8 @@ export async function launch(
       }),
       { mode: 0o600 },
     );
-    command = "/usr/bin/python3";
-    argv = [join(import.meta.dirname, "launch.py"), spec];
+    command = model.uv ?? "/usr/bin/python3";
+    argv = [...(model.uv ? ["run", "--no-project", "--offline", "--no-python-downloads", "--python", box.python] : []), join(import.meta.dirname, "launch.py"), spec];
   }
   const child = spawn(command, argv, { stdio: "inherit", env });
   const interrupt = () => child.kill("SIGINT");

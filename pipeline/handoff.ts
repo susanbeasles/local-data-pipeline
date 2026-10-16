@@ -13,6 +13,7 @@ import { assertNetworkDenied } from "./sandbox.ts";
 const exec = promisify(execFile);
 export type Handoff = {
   untracked?: boolean;
+  selection?: "documentation" | "engineering";
   title: string;
   sources: { name: string; path: string }[];
   output: string;
@@ -46,7 +47,8 @@ const ignored = new Set([
   ".terraform",
   ".cache",
 ]);
-const selected = (path: string) =>
+const selected = (path: string, scope = "documentation") =>
+  (scope === "engineering" && /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb|java|kt|swift|sql|sh|bash|zsh|yaml|yml|json|toml|ini|xml|tf|hcl|j2|tpl|properties|graphql|gql)$/i.test(path) && !/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(path)) ||
   /\.(md|mdx|rst)$/i.test(path) ||
   /(^|\/)(package\.json|Dockerfile|Makefile|pyproject\.toml|Cargo\.toml|(?:docker-)?compose\.ya?ml)$/i.test(
     path,
@@ -66,7 +68,8 @@ async function plan(value: Handoff, base = process.cwd()) {
     !Array.isArray(value.sources) ||
     !value.sources.length ||
     typeof value.output !== "string" ||
-    (value.untracked !== undefined && typeof value.untracked !== "boolean")
+    (value.untracked !== undefined && typeof value.untracked !== "boolean") ||
+    (value.selection !== undefined && !["documentation", "engineering"].includes(value.selection))
   )
     throw Error("invalid handoff configuration");
   if (
@@ -90,9 +93,9 @@ async function plan(value: Handoff, base = process.cwd()) {
   }
   if (new Set(sources.map((s) => s.path)).size !== sources.length)
     throw Error("duplicate repository roots");
-  return { title: value.title, sources, output, untracked: value.untracked ?? false };
+  return { title: value.title, sources, output, untracked: value.untracked ?? false, selection: value.selection ?? "documentation" };
 }
-async function* files(root: string, untracked = false, dir = root): AsyncGenerator<string> {
+async function* files(root: string, untracked = false, dir = root, selection = "documentation"): AsyncGenerator<string> {
   if (!untracked) {
     const result = await exec(
       "/usr/bin/git",
@@ -103,7 +106,7 @@ async function* files(root: string, untracked = false, dir = root): AsyncGenerat
         env: { PATH: "/usr/bin:/bin", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
       },
     );
-    for (const name of result.stdout.split("\0").filter(Boolean).filter(selected).sort()) {
+    for (const name of result.stdout.split("\0").filter(Boolean).filter(name => selected(name, selection)).sort()) {
       const path = resolve(root, name);
       if (!path.startsWith(root + "/")) throw Error("invalid tracked source path");
       yield path;
@@ -116,8 +119,8 @@ async function* files(root: string, untracked = false, dir = root): AsyncGenerat
   for (const e of entries) {
     const path = join(dir, e.name);
     if (e.isDirectory()) {
-      if (!ignored.has(e.name)) yield* files(root, true, path);
-    } else if (selected(relative(root, path)) || (e.isSymbolicLink() && !ignored.has(e.name)))
+      if (!ignored.has(e.name)) yield* files(root, true, path, selection);
+    } else if (selected(relative(root, path), selection) || (e.isSymbolicLink() && !ignored.has(e.name)))
       yield path;
   }
 }
@@ -214,7 +217,7 @@ export async function handoff(value: Handoff) {
     );
     for (const source of config.sources) {
       repos.push(await repository(source.name, source.path));
-      for await (const path of files(source.path, config.untracked)) {
+      for await (const path of files(source.path, config.untracked, source.path, config.selection)) {
         const name = relative(source.path, path),
           info = await lstat(path).catch((e: NodeJS.ErrnoException) => {
             if (e.code === "ENOENT") return null;
@@ -405,12 +408,12 @@ export async function handoff(value: Handoff) {
           }
           yield "</section>";
         }
-        yield `<footer><p>Coverage: selected existing documentation, package manifests, Docker/compose definitions, Makefiles and CI workflows. General source code, Git history, Slack, Jira and Confluence history are not analyzed by this pack. Their collection and enrichment remain separate.</p></footer><script>${finder}</script></main></html>`;
+        yield `<footer><p>Coverage: ${config.selection === "engineering" ? "selected source code, infrastructure, documentation and configuration" : "selected documentation, package manifests, Docker/compose definitions, Makefiles and CI workflows"}. Git history, Slack, Jira and Confluence history are not analyzed by this pack. Their collection and enrichment remain separate.</p></footer><script>${finder}</script></main></html>`;
       })(),
     );
     for (const source of config.sources) {
       const before = new Set(dispositions.filter((d) => d.repo === source.name).map((d) => d.path));
-      for await (const path of files(source.path, config.untracked)) {
+      for await (const path of files(source.path, config.untracked, source.path, config.selection)) {
         if (!before.delete(relative(source.path, path)))
           throw Error("source inventory changed during handoff");
       }
@@ -439,6 +442,7 @@ export async function handoff(value: Handoff) {
       jsonl,
       html,
       selection: {
+        mode: config.selection,
         untracked: config.untracked,
         extensions: ["md", "mdx", "rst"],
         configurations: [
@@ -455,7 +459,7 @@ export async function handoff(value: Handoff) {
         maxTotalBytes: 256 * 1024 ** 2,
       },
       scope:
-        "Existing source-authored documentation and declared configuration only; no historical or full-code analysis",
+        config.selection === "engineering" ? "Selected tracked source code, infrastructure and documentation snapshot; no historical analysis or deployment certification" : "Existing source-authored documentation and declared configuration only; no historical or full-code analysis",
       created: new Date().toISOString(),
     });
     const report = await verifyHandoff(config.output);

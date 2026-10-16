@@ -235,3 +235,11 @@ test("repository metadata inspection never invokes configured clean filters", as
   await handoff({ ...f.config, untracked: false });
   await assert.rejects(access(marker));
 });
+
+test('engineering selection includes captured code and infrastructure while default documentation scope remains narrow', async()=>{
+ const f=await fixture();await writeFile(join(f.source,'consumer.ts'),'export const usertags = ["fixture"];\n');await writeFile(join(f.source,'policy.yaml'),'fixture: consent\n');
+ const docs=await handoff(f.config);assert.equal(docs.documents,3);
+ const full=await handoff({...f.config,output:join(f.root,'engineering'),selection:'engineering'});assert.equal(full.documents,5);
+ assert.match(await readFile(join(f.root,'engineering/documents.jsonl'),'utf8'),/consumer.ts/);
+ assert.equal((await verifyHandoff(join(f.root,'engineering'))).integrity,true);
+});

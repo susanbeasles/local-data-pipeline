@@ -6,6 +6,19 @@ config=json.loads(Path(sys.argv[1]).read_text())
 # A missing/incompatible library must not leave unsupervised workers behind.
 lib=ctypes.CDLL('/usr/lib/libproc.dylib')
 lib.proc_pid_rusage.argtypes=[ctypes.c_int,ctypes.c_int,ctypes.c_void_p]
+roots=config.get('observeRoots',[])
+if not isinstance(roots,list) or len(roots)>16 or any(type(pid) is not int or pid<2 for pid in roots):raise ValueError('invalid observed pipeline roots')
+def observed():
+    if not roots:return []
+    output=subprocess.check_output(['/bin/ps','-axo','pid=,ppid='],text=True,timeout=2)
+    pairs=[tuple(map(int,line.split())) for line in output.splitlines() if line.strip()]
+    alive={pid for pid,parent in pairs}; selected=set(roots)&alive
+    while True:
+        more={pid for pid,parent in pairs if parent in selected}-selected
+        if not more:break
+        selected.update(more)
+    return sorted(selected)
+observed() # fail before starting workers if shared-budget observation is unavailable
 workers=[];fds=[];passed=[];env=dict(config['env'])
 app=None
 try:
@@ -52,9 +65,17 @@ def monitor():
     while not stop_event.is_set():
         identities=[('supervisor',os.getpid())]+[('application',app.pid)] if app.poll() is None else [('supervisor',os.getpid())]
         identities += [('worker:'+str(index),p.pid) for index,p in enumerate(workers) if p.poll() is None]
+        try:
+            known={pid for role,pid in identities}
+            identities += [('observed:'+str(pid),pid) for pid in observed() if pid not in known]
+        except (OSError,subprocess.SubprocessError,ValueError):
+            exceeded=True;stop(force=True);break
         processes=[]
         for role,pid in identities:
             usage=memory(pid)
+            if usage is None and role.startswith('observed:'):
+                try:os.kill(pid,0)
+                except ProcessLookupError:continue
             processes.append(dict(role=role,pid=pid,**usage) if usage is not None else None)
         if any(p is None for p in processes):
             exceeded=True;stop(force=True);break
@@ -83,7 +104,7 @@ finally:
         try:worker.wait(timeout=10)
         except subprocess.TimeoutExpired:worker.kill();worker.wait()
     gpu=[s['gpuPercent'] for s in samples if s.get('gpuPercent') is not None]
-    report={'workers':len(workers),'budgetBytes':budget,'budgetExceeded':exceeded,'peakFootprintBytes':max((s['footprintBytes'] for s in samples),default=0),'peakResidentBytes':max((s['residentBytes'] for s in samples),default=0),'processesAtPeak':max(samples,key=lambda s:s['footprintBytes']).get('processes',[]) if samples else [],'gpuMeanPercent':sum(gpu)/len(gpu) if gpu else None,'gpuPeakPercent':max(gpu) if gpu else None,'gpuScope':'system-wide Apple GPU device utilization; other applications may contribute','samples':samples,'exitCode':status}
+    report={'workers':len(workers),'observedRoots':roots,'budgetBytes':budget,'budgetExceeded':exceeded,'peakFootprintBytes':max((s['footprintBytes'] for s in samples),default=0),'peakResidentBytes':max((s['residentBytes'] for s in samples),default=0),'processesAtPeak':max(samples,key=lambda s:s['footprintBytes']).get('processes',[]) if samples else [],'gpuMeanPercent':sum(gpu)/len(gpu) if gpu else None,'gpuPeakPercent':max(gpu) if gpu else None,'gpuScope':'system-wide Apple GPU device utilization; other applications may contribute','samples':samples,'exitCode':status}
     target=Path(config['work'])/'state'/'resources.json';temp=target.with_suffix('.tmp')
     with temp.open('w') as stream:json.dump(report,stream);stream.flush();os.fsync(stream.fileno())
     os.replace(temp,target)

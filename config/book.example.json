@@ -1,0 +1,128 @@
+{
+  "title": "Engineering handbook",
+  "output": "../state/books/edition-1",
+  "sources": [
+    { "name": "repositories", "kind": "handoff", "path": "../state/engineering-snapshot" },
+    { "name": "discussions", "kind": "intake", "path": "../state/imports/slack" },
+    { "name": "decisions", "kind": "intake", "path": "../state/imports/atlassian" }
+  ],
+  "excerpts": 12,
+  "characters": 2400,
+  "topics": [
+    {
+      "id": "orientation",
+      "title": "System orientation",
+      "keywords": ["architecture", "data flow", "integration", "system overview", "onboarding"],
+      "questions": [
+        "What are the major products, services, repositories and data flows?",
+        "Which boundaries and dependencies must a successor understand first?",
+        "What is documented implementation, and what is actually known to be deployed?"
+      ],
+      "related": ["consent", "deployments", "observability", "iterable", "usertags"]
+    },
+    {
+      "id": "consent",
+      "title": "Consent and identity",
+      "keywords": ["consent", "opt-out", "opt out", "opt-in", "opt in"],
+      "questions": [
+        "Why does consent matter here, according to recorded decisions?",
+        "Where and how is consent enforced?",
+        "Which identifiers, users, messages and integrations depend on it?",
+        "What breaks if consent behavior changes, and how would a migration be verified?"
+      ],
+      "related": ["iterable", "usertags", "contracts"]
+    },
+    {
+      "id": "deployments",
+      "title": "Deployment and Ansible",
+      "keywords": ["ansible", "playbook", "rollback", "deployment", "release promotion"],
+      "questions": [
+        "Why do deployments have these steps and constraints?",
+        "How do Ansible, CI/CD, environments, approvals and rollout interact?",
+        "How should a successor deploy, verify and roll back?",
+        "Which historical incidents or decisions explain the current hoops?"
+      ],
+      "related": ["observability", "history", "orientation"]
+    },
+    {
+      "id": "observability",
+      "title": "CloudWatch and structured logging",
+      "keywords": [
+        "cloudwatch",
+        "loggroup",
+        "log group",
+        "structured logging",
+        "correlation id",
+        "sonarmd-logger"
+      ],
+      "questions": [
+        "Why are CloudWatch resources and log streams organized this way?",
+        "What structured fields and correlation contracts do applications rely on?",
+        "Which dashboards, alerts, retention rules and consumers depend on that structure?",
+        "How can logging changes be validated and operational failures investigated?"
+      ],
+      "related": ["deployments", "contracts", "history"]
+    },
+    {
+      "id": "usertags",
+      "title": "Usertags and change impact",
+      "keywords": ["usertags", "user_tags", "user tags", "user.tags"],
+      "questions": [
+        "What are usertags and what do they mean in this system?",
+        "Which writers, readers, schemas, APIs and integrations use them?",
+        "If usertags are replaced, which explicitly evidenced consumers or contracts break?",
+        "What migration, compatibility and validation steps are actually documented?"
+      ],
+      "related": ["iterable", "consent", "contracts"]
+    },
+    {
+      "id": "iterable",
+      "title": "Iterable integration",
+      "keywords": ["iterable", "data warehouse iterable", "campaign", "subscriptiontype"],
+      "questions": [
+        "How and why does this system use Iterable?",
+        "Which identifiers, synchronization jobs, fields and events are contractual?",
+        "How do consent, segmentation and usertags interact with it?",
+        "What failure modes, recovery procedures and migration risks are recorded?"
+      ],
+      "related": ["consent", "usertags", "contracts", "observability"]
+    },
+    {
+      "id": "contracts",
+      "title": "Data contracts and dependencies",
+      "keywords": [
+        "backward compatible",
+        "breaking change",
+        "schema migration",
+        "event schema",
+        "data contract",
+        "consumer"
+      ],
+      "questions": [
+        "Which data and event contracts cross service boundaries?",
+        "Who produces and consumes them, and why were they chosen?",
+        "How are compatibility, schema changes and recovery handled?",
+        "Which dependencies and unknown consumers must be checked before changing a contract?"
+      ],
+      "related": ["usertags", "iterable", "consent"]
+    },
+    {
+      "id": "history",
+      "title": "Decisions, incidents and inherited constraints",
+      "keywords": [
+        "root cause",
+        "postmortem",
+        "decision record",
+        "retrospective",
+        "incident",
+        "deprecated"
+      ],
+      "questions": [
+        "Which recorded decisions and incidents explain current constraints?",
+        "What changed over time, and which approaches were proposed, superseded or abandoned?",
+        "Which lessons remain operationally relevant, and what is unresolved or contradictory?"
+      ],
+      "related": ["deployments", "observability", "orientation"]
+    }
+  ]
+}
