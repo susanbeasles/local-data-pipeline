@@ -1,6 +1,7 @@
+import { layout } from "./storage.ts";
 import { readFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
-/** Machine bindings come from local configuration; defaults refer only to this checkout. */
+/** Machine bindings come from local configuration; defaults use private macOS Application Support outside the checkout. */
 export function assets(env: NodeJS.ProcessEnv = process.env) {
   const root = resolve(import.meta.dirname, "..");
   const file = env.PIPELINE_CONFIG ? resolve(env.PIPELINE_CONFIG) : undefined;
@@ -10,7 +11,7 @@ export function assets(env: NodeJS.ProcessEnv = process.env) {
     const selected = env[variable] ?? config.mlx?.[key];
     if (selected !== undefined && (typeof selected !== "string" || !selected.trim()))
       throw Error("invalid local asset path: " + key);
-    return selected ? resolve(directory, selected) : join(root, fallback);
+    return selected ? resolve(directory, selected) : join(layout("standard").data, fallback);
   };
   return {
     runtime: value("runtime", "PIPELINE_RUNTIME", ".venv"),

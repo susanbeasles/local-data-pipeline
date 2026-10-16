@@ -1,3 +1,4 @@
+import { outsideProject } from "./storage.ts";
 /** Local, source-authored documentation pack. This does not claim historical enrichment. */
 import { DatabaseSync } from "node:sqlite";
 import { readFile, mkdir, opendir, lstat, realpath } from "node:fs/promises";
@@ -85,6 +86,7 @@ async function plan(value: Handoff, base = process.cwd()) {
     throw Error("invalid repository identities");
   const sources = [];
   let output = resolve(base, value.output);
+  await outsideProject(output);
   for (const s of value.sources) {
     const p = await boundaries(resolve(base, s.path), output);
     if (!(await lstat(p.input)).isDirectory()) throw Error("repository directory required");

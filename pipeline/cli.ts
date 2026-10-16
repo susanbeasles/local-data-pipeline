@@ -1,3 +1,4 @@
+import { outsideProject } from "./storage.ts";
 import { readFile, access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve, join, dirname } from "node:path";
@@ -30,6 +31,7 @@ if (command === "status") {
   const directory = dirname(resolve(path));
   config.input = resolve(directory, config.input);
   config.work = resolve(directory, config.work);
+  await outsideProject(config.work);
   for (const key of ["runtime", "base", "package"] as const)
     if (config.mlx[key]) config.mlx[key] = resolve(directory, config.mlx[key]!);
   if (config.extractor)

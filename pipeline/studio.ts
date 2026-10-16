@@ -1,3 +1,4 @@
+import { outsideProject } from "./storage.ts";
 /** Native workspace bridge. JSON requests arrive on stdin, never shell command strings. */
 import { readFile, mkdir, open, realpath, readdir, writeFile, lstat } from "node:fs/promises";
 import { resolve, dirname, join, sep } from "node:path";
@@ -59,6 +60,7 @@ export async function configure(path: string): Promise<Studio> {
     } else value.platform.config = resolve(base, value.platform.config);
   }
   value.state = await canonical(resolve(base, value.state));
+  await outsideProject(value.state);
   value.sources = value.sources.map((s) => ({
     ...s,
     root: resolve(base, s.root),

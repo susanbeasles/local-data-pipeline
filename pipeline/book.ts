@@ -1,3 +1,4 @@
+import { outsideProject } from "./storage.ts";
 /** Local handbook preparation, checkpointed authoring and portable publication. */
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, readFile, lstat, realpath, readdir, statfs } from "node:fs/promises";
@@ -132,6 +133,7 @@ function candidate(
 export async function prepareBook(value: Book) {
   const config = validateBook(value);
   config.output = resolve(config.output);
+  await outsideProject(config.output);
   for (const s of config.sources) {
     const p = await boundaries(resolve(s.path), config.output);
     s.path = await canonical(p.input);

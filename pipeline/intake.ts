@@ -1,3 +1,4 @@
+import { outsideProject } from "./storage.ts";
 import { DatabaseSync } from "node:sqlite";
 import { chmod, mkdir, open, lstat, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -52,6 +53,7 @@ export class Intake {
   }
   static async open(root: string): Promise<Intake> {
     root = resolve(root);
+    await outsideProject(root);
     const path = join(root, "state", "intake.sqlite");
     // Preflight every existing component before changing any permissions.
     const targets = [

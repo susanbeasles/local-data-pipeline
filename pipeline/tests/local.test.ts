@@ -1,3 +1,4 @@
+import { layout } from "../storage.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
@@ -22,16 +23,19 @@ test("asset bindings resolve relative to explicit configuration and allow local 
       assets({ PIPELINE_CONFIG: path, PIPELINE_BASE: join(root, "other") }).base,
       join(root, "other"),
     );
-    assert.equal(assets({}).runtime, resolve(import.meta.dirname, "../../.venv"));
+    assert.equal(assets({}).runtime, join(layout("standard").data, ".venv"));
     await assert.rejects(async () => assets({ PIPELINE_RUNTIME: "" }), /invalid/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("unsupported interpreter layouts cannot grant recursive access to broad prefixes",async()=>{
- const {framework}=await import('../legacy/sandbox.ts');
- assert.throws(()=>framework('/usr/local/bin/python3'),/unsupported/);
- assert.throws(()=>framework(join(tmpdir(),'home','bin','python3')),/unsupported/);
- assert.equal(framework('/Library/Frameworks/Python.framework/Versions/3.12/bin/python3'),'/Library/Frameworks/Python.framework');
+test("unsupported interpreter layouts cannot grant recursive access to broad prefixes", async () => {
+  const { framework } = await import("../legacy/sandbox.ts");
+  assert.throws(() => framework("/usr/local/bin/python3"), /unsupported/);
+  assert.throws(() => framework(join(tmpdir(), "home", "bin", "python3")), /unsupported/);
+  assert.equal(
+    framework("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"),
+    "/Library/Frameworks/Python.framework",
+  );
 });

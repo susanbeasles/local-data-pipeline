@@ -1,3 +1,4 @@
+import { outsideProject } from "./storage.ts";
 import { readFile, lstat, realpath, access } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { seal, fileHash } from "./seal.ts";
@@ -31,6 +32,7 @@ export async function pack(
 ) {
   base = await realpath(base);
   destination = await canonical(resolve(destination));
+  await outsideProject(destination);
   if (
     destination === base ||
     destination.startsWith(base + sep) ||
