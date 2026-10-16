@@ -177,6 +177,6 @@ struct ControlView: View {
             Button("Refresh") { Task { await panel.call("status") } }
             Divider(); Button("Quit panel") { NSApp.terminate(nil) }
         }
-        WindowGroup("Pipeline", id: "control") { StudioView(panel: panel) }.defaultSize(width: 1280, height: 820)
+        WindowGroup("Pipeline", id: "control") { StudioView(panel: panel) }.defaultSize(width: 1280, height: 820).windowResizability(.contentMinSize)
     }
 }

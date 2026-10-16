@@ -8,7 +8,7 @@ struct JsonTree: View {
   ScrollView([.vertical, .horizontal]) {
    JsonBranch(node: JsonNode("", value), source: source, root: true)
     .padding(12).frame(minWidth: 280, alignment: .leading)
-  }.background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+  }.defaultScrollAnchor(.topLeading).background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
  }
 }
 struct JsonBranch: View {
